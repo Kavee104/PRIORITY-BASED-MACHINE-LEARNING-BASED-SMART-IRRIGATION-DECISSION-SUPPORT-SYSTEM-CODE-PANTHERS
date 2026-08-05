@@ -1,46 +1,25 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'role_selection_screen.dart';
-import 'dashboard_screen.dart';
-import 'officer_login_screen.dart';
-import 'forgot_password_screen.dart';
+import 'officer_dashboard_screen.dart';
+import 'officer_forgot_password_screen.dart';
 
-void main() {
-  runApp(const SmartIrrigationApp());
-}
-
-class SmartIrrigationApp extends StatelessWidget {
-  const SmartIrrigationApp({super.key});
+class OfficerLoginScreen extends StatefulWidget {
+  const OfficerLoginScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Smart Irrigation',
-      theme: ThemeData(
-        primarySwatch: Colors.green,
-      ),
-      home: const LoginScreen(),
-    );
-  }
+  State<OfficerLoginScreen> createState() => _OfficerLoginScreenState();
 }
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
-
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen> {
+class _OfficerLoginScreenState extends State<OfficerLoginScreen> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   bool isLoading = false;
 
+  
   final String baseUrl = "http://10.95.149.28:5000";
 
-  Future<void> loginUser() async {
+  Future<void> loginOfficer() async {
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
 
@@ -55,7 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse("$baseUrl/login"),
+        Uri.parse("$baseUrl/login/officer"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "email": email,
@@ -68,16 +47,16 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (response.statusCode == 200) {
+        final officerName = data['name'] ?? '';
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => DashboardScreen(
-              farmerName: data['name'],
-              farmerId: data['farmer_id'],
-            ),
+            builder: (context) => OfficerDashboardScreen(officerName: officerName),
           ),
         );
       } else {
+        // Handles both wrong-password ("N attempts left") and
+        // locked-account ("Try again in X minutes") messages from backend.
         _showMessage(data['error'] ?? "Login failed");
       }
     } catch (e) {
@@ -101,34 +80,37 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.blueGrey),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Icon(
-              Icons.water_drop,
-              size: 100,
-              color: Colors.green,
+              Icons.badge,
+              size: 90,
+              color: Colors.blueGrey,
             ),
             const SizedBox(height: 20),
             const Text(
-              "Smart Irrigation",
+              "Officer Login",
               style: TextStyle(
-                fontSize: 32,
+                fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: Colors.green,
+                color: Colors.blueGrey,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             const Text(
-              "AI Based Water Management System",
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey,
-              ),
+              "Smart Irrigation Management",
+              style: TextStyle(fontSize: 14, color: Colors.grey),
             ),
             const SizedBox(height: 40),
+
             TextField(
               controller: emailController,
               decoration: InputDecoration(
@@ -140,6 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
             const SizedBox(height: 20),
+
             TextField(
               controller: passwordController,
               obscureText: true,
@@ -151,24 +134,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
-                  );
-                },
-                child: const Text("Forgot Password?"),
-              ),
-            ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 30),
+
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: isLoading ? null : loginUser,
+                onPressed: isLoading ? null : loginOfficer,
                 style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueGrey,
                   padding: const EdgeInsets.all(15),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -185,32 +158,22 @@ class _LoginScreenState extends State<LoginScreen> {
                       )
                     : const Text(
                         "LOGIN",
-                        style: TextStyle(
-                          fontSize: 18,
-                        ),
+                        style: TextStyle(fontSize: 18, color: Colors.white),
                       ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             TextButton(
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const RoleSelectionScreen()),
-                );
-              },
-              child: const Text("Don't have an account? Sign up"),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const OfficerLoginScreen()),
+                  MaterialPageRoute(
+                    builder: (context) => const OfficerForgotPasswordScreen(),
+                  ),
                 );
               },
               child: const Text(
-                "Login as Officer",
+                "Forgot Password?",
                 style: TextStyle(color: Colors.blueGrey),
               ),
             ),

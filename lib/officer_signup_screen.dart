@@ -20,7 +20,7 @@ class _OfficerSignupScreenState extends State<OfficerSignupScreen> {
   String? emailError;
   String? passwordError;
 
-  final String baseUrl = "http://172.31.98.225:5000";
+  final String baseUrl = "http://10.95.149.28:5000";
 
   Future<void> signupOfficer() async {
     final firstName = firstNameController.text.trim();

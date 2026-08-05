@@ -20,8 +20,7 @@ class _SignupScreenState extends State<SignupScreen> {
   String? emailError;
   String? passwordError;
 
-  final String baseUrl = "http://172.31.98.225:5000";
-
+ final String baseUrl = "http://10.95.149.28:5000";
   Future<void> signupUser() async {
     final firstName = firstNameController.text.trim();
     final lastName = lastNameController.text.trim();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'app_config.dart';
 import 'officer_dashboard_screen.dart';
 import 'officer_forgot_password_screen.dart';
 
@@ -17,7 +18,7 @@ class _OfficerLoginScreenState extends State<OfficerLoginScreen> {
   bool isLoading = false;
 
   
-  final String baseUrl = "http://10.95.149.28:5000";
+  final String baseUrl = AppConfig.apiBaseUrl;
 
   Future<void> loginOfficer() async {
     final email = emailController.text.trim();

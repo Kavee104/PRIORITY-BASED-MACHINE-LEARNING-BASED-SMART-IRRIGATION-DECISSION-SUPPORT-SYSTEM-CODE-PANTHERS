@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'app_config.dart';
 import 'field_creation_screen.dart';
 import 'main.dart';
 
@@ -19,7 +20,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-final String baseUrl = "http://10.95.149.28:5000";
+final String baseUrl = AppConfig.apiBaseUrl;
 
   List<dynamic> fields = [];
   List<dynamic> requests = [];

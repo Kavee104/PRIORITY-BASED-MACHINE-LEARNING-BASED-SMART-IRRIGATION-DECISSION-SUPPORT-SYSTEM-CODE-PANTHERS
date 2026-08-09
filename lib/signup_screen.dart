@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'app_config.dart';
 import 'validators.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -20,7 +21,7 @@ class _SignupScreenState extends State<SignupScreen> {
   String? emailError;
   String? passwordError;
 
- final String baseUrl = "http://10.95.149.28:5000";
+ final String baseUrl = AppConfig.apiBaseUrl;
   Future<void> signupUser() async {
     final firstName = firstNameController.text.trim();
     final lastName = lastNameController.text.trim();

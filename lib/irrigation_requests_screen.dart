@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'app_config.dart';
 
 class IrrigationRequestsScreen extends StatefulWidget {
   const IrrigationRequestsScreen({super.key});
@@ -10,7 +11,7 @@ class IrrigationRequestsScreen extends StatefulWidget {
 }
 
 class _IrrigationRequestsScreenState extends State<IrrigationRequestsScreen> {
- final String baseUrl = "http://10.95.149.28:5000";
+ final String baseUrl = AppConfig.apiBaseUrl;
 
   bool isLoading = true;
   String? errorMessage;

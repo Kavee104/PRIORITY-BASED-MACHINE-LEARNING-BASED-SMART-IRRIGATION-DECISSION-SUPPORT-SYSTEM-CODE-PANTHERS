@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'app_config.dart';
 
 class FieldCreationScreen extends StatefulWidget {
   final int farmerId;
@@ -14,7 +15,7 @@ class FieldCreationScreen extends StatefulWidget {
 class _FieldCreationScreenState extends State<FieldCreationScreen> {
   final TextEditingController zoneController = TextEditingController();
   final TextEditingController sizeController = TextEditingController();
-final String baseUrl = "http://10.95.149.28:5000";
+final String baseUrl = AppConfig.apiBaseUrl;
 
   bool isLoading = false;
 

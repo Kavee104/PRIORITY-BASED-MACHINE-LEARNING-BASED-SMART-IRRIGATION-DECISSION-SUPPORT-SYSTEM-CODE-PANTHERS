@@ -74,19 +74,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
       isLoading = true;
     });
 
+    List<dynamic> remoteFields = [];
     List<dynamic> remoteReqs = [];
     try {
       final fieldsResponse =
           await http.get(Uri.parse("$baseUrl/fields/${widget.farmerId}")).timeout(const Duration(seconds: 3));
       final fieldsData = jsonDecode(fieldsResponse.body);
-      fields = fieldsData['fields'] ?? [];
+      remoteFields = fieldsData['fields'] ?? [];
 
       final requestsResponse =
           await http.get(Uri.parse("$baseUrl/my-requests/${widget.farmerId}")).timeout(const Duration(seconds: 3));
       final requestsData = jsonDecode(requestsResponse.body);
       remoteReqs = requestsData['requests'] ?? [];
     } catch (e) {
-      _loadMockData();
+      // Backend unreachable or offline
+    }
+
+    // Merge remote fields and local AuthService fields cleanly
+    final localFields = AuthService.instance.getFarmerFields(widget.farmerId);
+    final fieldMap = <int, dynamic>{};
+
+    for (var f in localFields) {
+      if (f['FieldID'] != null && f['FieldID'] is int) {
+        fieldMap[f['FieldID'] as int] = f;
+      }
+    }
+    for (var f in remoteFields) {
+      if (f['FieldID'] != null && f['FieldID'] is int) {
+        fieldMap[f['FieldID'] as int] = f;
+      }
     }
 
     // Merge shared AuthService requests so real-time approvals/rejections from Admin are immediately shown to Farmer
@@ -101,25 +117,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (mounted) {
       setState(() {
-        if (fields.isEmpty) {
-          fields = [
-            {"FieldID": 101, "ZoneNo": 1, "Size": 4.5, "CropType": "Paddy Rice", "Moisture": "68%", "Status": "Optimal"},
-            {"FieldID": 102, "ZoneNo": 2, "Size": 2.8, "CropType": "Maize", "Moisture": "42%", "Status": "Needs Water"},
-            {"FieldID": 103, "ZoneNo": 3, "Size": 3.2, "CropType": "Vegetables", "Moisture": "75%", "Status": "Optimal"},
-          ];
-        }
+        fields = fieldMap.values.toList();
         requests = combinedMap.values.toList();
         isLoading = false;
       });
     }
-  }
-
-  void _loadMockData() {
-    fields = [
-      {"FieldID": 101, "ZoneNo": 1, "Size": 4.5, "CropType": "Paddy Rice", "Moisture": "68%", "Status": "Optimal"},
-      {"FieldID": 102, "ZoneNo": 2, "Size": 2.8, "CropType": "Maize", "Moisture": "42%", "Status": "Needs Water"},
-      {"FieldID": 103, "ZoneNo": 3, "Size": 3.2, "CropType": "Vegetables", "Moisture": "75%", "Status": "Optimal"},
-    ];
   }
 
   Future<void> requestWater(int fieldId) async {
@@ -944,7 +946,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       DataColumn(label: Text("Field ID", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
                       DataColumn(label: Text("Zone No", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
                       DataColumn(label: Text("Size", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                      DataColumn(label: Text("Crop", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
                       DataColumn(label: Text("Moisture", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
                       DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
                       DataColumn(label: Text("Action", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
@@ -957,7 +958,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           DataCell(Text("#${f['FieldID']}", style: const TextStyle(fontWeight: FontWeight.bold))),
                           DataCell(Text("Zone ${f['ZoneNo']}")),
                           DataCell(Text("${f['Size']} acres")),
-                          DataCell(Text("${f['CropType'] ?? 'General'}")),
                           DataCell(Text("${f['Moisture'] ?? '68%'}")),
                           DataCell(
                             Container(

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
+import 'auth_service.dart';
+import 'app_theme.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -61,6 +63,13 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     final password = _passwordController.text.trim();
     final role = _selectedRole;
 
+    // Register locally in AuthService for RBAC
+    AuthService.instance.registerAccount(
+      username: username,
+      password: password,
+      roleStr: role,
+    );
+
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/admin/create-user'),
@@ -76,19 +85,23 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
       if (response.statusCode == 200) {
         _showBanner('User "$username" created as $role!', Colors.green.shade700);
+      } else {
+        _showBanner('User "$username" registered locally as $role!', Colors.green.shade700);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showBanner('User "$username" created locally as $role (Offline mode)', Colors.green.shade700);
+    } finally {
+      if (mounted) {
         _formKey.currentState!.reset();
         _usernameController.clear();
         _passwordController.clear();
         _confirmPasswordController.clear();
-        setState(() => _selectedRole = 'farmer');
-      } else {
-        _showBanner(data['message'] ?? 'Failed to create user', Colors.red.shade700);
+        setState(() {
+          _selectedRole = 'farmer';
+          _isCreating = false;
+        });
       }
-    } catch (e) {
-      if (!mounted) return;
-      _showBanner('Connection error: Could not reach server', Colors.red.shade700);
-    } finally {
-      if (mounted) setState(() => _isCreating = false);
     }
   }
 
@@ -98,25 +111,31 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       _usersError = null;
     });
 
+    final localAccounts = AuthService.instance.getAllAccounts().map((a) => {
+      'username': a.username,
+      'role': a.roleString,
+    }).toList();
+
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/admin/users'),
         headers: {'X-Admin-Key': _adminKey},
-      );
+      ).timeout(const Duration(seconds: 3));
 
       if (!mounted) return;
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final fetched = List<Map<String, dynamic>>.from(data['users'] ?? []);
         setState(() {
-          _users = List<Map<String, dynamic>>.from(data['users'] ?? []);
+          _users = [...localAccounts, ...fetched];
         });
       } else {
-        setState(() => _usersError = 'Failed to load users');
+        setState(() => _users = localAccounts);
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _usersError = 'Connection error');
+      setState(() => _users = localAccounts);
     } finally {
       if (mounted) setState(() => _isLoadingUsers = false);
     }
@@ -137,41 +156,42 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   Color _roleColor(String role) {
     switch (role) {
       case 'admin': return Colors.deepPurple;
-      case 'officer': return Colors.blueGrey;
-      case 'farmer': return Colors.green;
-      default: return Colors.grey;
+      case 'officer': return AppColors.aquaBlue;
+      case 'farmer': return AppColors.emerald;
+      default: return AppColors.textSecondary;
     }
   }
 
   IconData _roleIcon(String role) {
     switch (role) {
-      case 'admin': return Icons.admin_panel_settings;
-      case 'officer': return Icons.badge;
-      case 'farmer': return Icons.agriculture;
-      default: return Icons.person;
+      case 'admin': return Icons.admin_panel_settings_rounded;
+      case 'officer': return Icons.badge_rounded;
+      case 'farmer': return Icons.agriculture_rounded;
+      default: return Icons.person_rounded;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FB),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: AppColors.textDark,
+        elevation: 0,
         title: const Text(
           'User Role Management',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: Colors.white,
+          indicatorColor: AppColors.emerald,
           indicatorWeight: 3,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white60,
+          labelColor: AppColors.emerald,
+          unselectedLabelColor: AppColors.textSecondary,
           tabs: const [
-            Tab(icon: Icon(Icons.person_add_alt_1), text: 'Create User'),
-            Tab(icon: Icon(Icons.group), text: 'All Users'),
+            Tab(icon: Icon(Icons.person_add_alt_1_rounded), text: 'Create User'),
+            Tab(icon: Icon(Icons.group_rounded), text: 'All Users'),
           ],
         ),
       ),
@@ -253,7 +273,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
             // Role selector
             Row(
-              children: ['admin', 'officer', 'farmer'].map((role) {
+              children: ['farmer', 'admin'].map((role) {
                 final selected = _selectedRole == role;
                 final color = _roleColor(role);
                 return Expanded(

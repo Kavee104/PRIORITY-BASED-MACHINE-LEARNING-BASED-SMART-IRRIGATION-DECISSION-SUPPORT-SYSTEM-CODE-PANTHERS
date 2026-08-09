@@ -105,6 +105,40 @@ for uname, info in list(users.items()):
 _write_users_file(users)
 
 
+# ---------------------------------------------------------------------------
+# In-memory water requests store
+# ---------------------------------------------------------------------------
+water_requests = []  # list of dicts
+_next_request_id = 1
+
+# In-memory farmer fields store (keyed by farmer_id)
+farmer_fields = {}
+
+# Audit trail log
+audit_log = []  # list of dicts with keys: timestamp, action, user, details
+
+
+def _audit(action, user='system', details=''):
+  """Append an entry to the audit trail."""
+  import datetime
+  audit_log.insert(0, {
+    'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    'action': action,
+    'user': user,
+    'details': details,
+  })
+
+
+# Seed default farmer fields for demo
+farmer_fields[101] = [
+  {"FieldID": 101, "ZoneNo": 1, "Size": 4.5, "CropType": "Paddy Rice", "Moisture": "68%", "Status": "Optimal"},
+  {"FieldID": 102, "ZoneNo": 2, "Size": 2.8, "CropType": "Maize", "Moisture": "42%", "Status": "Needs Water"},
+  {"FieldID": 103, "ZoneNo": 3, "Size": 3.2, "CropType": "Vegetables", "Moisture": "75%", "Status": "Optimal"},
+]
+
+_audit('SYSTEM_INIT', 'system', 'Smart Irrigation backend initialized')
+
+
 def _find_user(identifier):
   username = (identifier or '').strip()
   if not username:
@@ -344,6 +378,7 @@ def admin_create_user():
     'password_hash': generate_password_hash(password),
     'role': role
   }
+  _audit('USER_CREATED', 'admin', f'Created user "{username}" with role "{role}"')
   _write_users_file(users)
   return jsonify({'status': 'success', 'username': username, 'role': role}), 200
 
@@ -369,6 +404,7 @@ def auth_login():
   if not check_password_hash(user['password_hash'], password):
     return jsonify({'status': 'error', 'message': 'invalid credentials'}), 401
   # For simplicity return role. In production return a JWT or session cookie.
+  _audit('USER_LOGIN', username, f'Logged in via /auth/login (role: {user["role"]})')
   return jsonify({'status': 'success', 'username': username, 'role': user['role']}), 200
 
 
@@ -387,6 +423,7 @@ def app_login():
         'role': 'admin'
       }), 200
 
+    _audit('USER_LOGIN', email, f'Logged in via /login (role: {user.get("role")})')
     return jsonify({
       'status': 'success',
       'name': email,
@@ -505,6 +542,181 @@ def list_routes():
   for rule in app.url_map.iter_rules():
     rules.append({'endpoint': rule.endpoint, 'rule': str(rule), 'methods': list(rule.methods)})
   return jsonify({'routes': rules}), 200
+
+
+# ---------------------------------------------------------------------------
+# Farmer Fields endpoints
+# ---------------------------------------------------------------------------
+@app.route('/fields/<int:farmer_id>', methods=['GET'])
+def get_farmer_fields(farmer_id):
+  fields = farmer_fields.get(farmer_id, [])
+  return jsonify({'fields': fields}), 200
+
+
+@app.route('/fields/<int:farmer_id>', methods=['POST'])
+def add_farmer_field(farmer_id):
+  data = request.get_json(force=True)
+  zone_no = data.get('zone_no', 1)
+  size = data.get('size', 1.0)
+  crop_type = data.get('crop_type', 'General')
+
+  if farmer_id not in farmer_fields:
+    farmer_fields[farmer_id] = []
+
+  new_id = max([f['FieldID'] for f in farmer_fields[farmer_id]], default=100) + 1
+  new_field = {
+    'FieldID': new_id,
+    'ZoneNo': zone_no,
+    'Size': size,
+    'CropType': crop_type,
+    'Moisture': f'{random.randint(30, 80)}%',
+    'Status': 'Optimal' if random.random() > 0.3 else 'Needs Water',
+  }
+  farmer_fields[farmer_id].append(new_field)
+  _audit('FIELD_CREATED', f'farmer_{farmer_id}', f'Registered field #{new_id} in Zone {zone_no}')
+  return jsonify({'status': 'success', 'field': new_field}), 201
+
+
+# ---------------------------------------------------------------------------
+# Water Request endpoints
+# ---------------------------------------------------------------------------
+@app.route('/request-water', methods=['POST'])
+def submit_water_request():
+  global _next_request_id
+  import datetime
+  data = request.get_json(force=True)
+  farmer_id = data.get('farmer_id')
+  field_id = data.get('field_id')
+
+  if not farmer_id or not field_id:
+    return jsonify({'error': 'farmer_id and field_id are required'}), 400
+
+  # Look up zone name from farmer_fields
+  zone_name = f'Zone (Field #{field_id})'
+  fields = farmer_fields.get(farmer_id, [])
+  for f in fields:
+    if f.get('FieldID') == field_id:
+      zone_name = f'Zone {f.get("ZoneNo", "?")} ({f.get("CropType", "General")})'
+      break
+
+  req = {
+    'RequestID': _next_request_id,
+    'farmer_id': farmer_id,
+    'FieldID': field_id,
+    'ZoneName': zone_name,
+    'Status': 'Pending',
+    'RequestTime': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    'farmer_name': f'Farmer #{farmer_id}',
+  }
+  _next_request_id += 1
+  water_requests.insert(0, req)  # newest first
+  _audit('WATER_REQUEST', f'farmer_{farmer_id}', f'Submitted water request #{req["RequestID"]} for field #{field_id} ({zone_name})')
+  return jsonify({'status': 'success', 'request': req}), 201
+
+
+@app.route('/my-requests/<int:farmer_id>', methods=['GET'])
+def get_my_requests(farmer_id):
+  import datetime
+  my_reqs = [r for r in water_requests if r.get('farmer_id') == farmer_id]
+  # Convert timestamps to relative time for display
+  now = datetime.datetime.now()
+  display_reqs = []
+  for r in my_reqs:
+    display_req = dict(r)
+    try:
+      req_time = datetime.datetime.strptime(r['RequestTime'], '%Y-%m-%d %H:%M:%S')
+      delta = now - req_time
+      mins = int(delta.total_seconds() / 60)
+      if mins < 1:
+        display_req['RequestTime'] = 'Just now'
+      elif mins < 60:
+        display_req['RequestTime'] = f'{mins} mins ago'
+      else:
+        hrs = mins // 60
+        display_req['RequestTime'] = f'{hrs} hour{"s" if hrs > 1 else ""} ago'
+    except Exception:
+      pass
+    display_reqs.append(display_req)
+  return jsonify({'requests': display_reqs}), 200
+
+
+# Legacy endpoint for officer/irrigation screen
+@app.route('/requests', methods=['GET'])
+def get_all_requests():
+  return jsonify({'requests': water_requests}), 200
+
+
+# ---------------------------------------------------------------------------
+# Admin Water Request Management
+# ---------------------------------------------------------------------------
+@app.route('/admin/water-requests', methods=['GET'])
+def admin_get_water_requests():
+  if not _admin_key_valid(request):
+    return jsonify({'status': 'error', 'message': 'admin key required'}), 401
+  return jsonify({'status': 'success', 'requests': water_requests}), 200
+
+
+@app.route('/admin/water-requests/<int:req_id>/approve', methods=['POST'])
+def admin_approve_request(req_id):
+  if not _admin_key_valid(request):
+    return jsonify({'status': 'error', 'message': 'admin key required'}), 401
+  for r in water_requests:
+    if r['RequestID'] == req_id:
+      r['Status'] = 'Approved'
+      _audit('REQUEST_APPROVED', 'admin', f'Approved water request #{req_id} for {r["ZoneName"]}')
+      return jsonify({'status': 'success', 'request': r}), 200
+  return jsonify({'status': 'error', 'message': 'Request not found'}), 404
+
+
+@app.route('/admin/water-requests/<int:req_id>/reject', methods=['POST'])
+def admin_reject_request(req_id):
+  if not _admin_key_valid(request):
+    return jsonify({'status': 'error', 'message': 'admin key required'}), 401
+  for r in water_requests:
+    if r['RequestID'] == req_id:
+      r['Status'] = 'Rejected'
+      _audit('REQUEST_REJECTED', 'admin', f'Rejected water request #{req_id} for {r["ZoneName"]}')
+      return jsonify({'status': 'success', 'request': r}), 200
+  return jsonify({'status': 'error', 'message': 'Request not found'}), 404
+
+
+# ---------------------------------------------------------------------------
+# Admin Stats & Audit Trail
+# ---------------------------------------------------------------------------
+@app.route('/admin/stats', methods=['GET'])
+def admin_stats():
+  if not _admin_key_valid(request):
+    return jsonify({'status': 'error', 'message': 'admin key required'}), 401
+
+  total_users = len(users)
+  total_requests = len(water_requests)
+  pending = sum(1 for r in water_requests if r['Status'] == 'Pending')
+  approved = sum(1 for r in water_requests if r['Status'] == 'Approved')
+  rejected = sum(1 for r in water_requests if r['Status'] == 'Rejected')
+  farmers = sum(1 for u in users.values() if u.get('role') == 'farmer')
+  officers = sum(1 for u in users.values() if u.get('role') == 'officer')
+  admins = sum(1 for u in users.values() if u.get('role') == 'admin')
+
+  return jsonify({
+    'status': 'success',
+    'stats': {
+      'total_users': total_users,
+      'farmers': farmers,
+      'officers': officers,
+      'admins': admins,
+      'total_requests': total_requests,
+      'pending_requests': pending,
+      'approved_requests': approved,
+      'rejected_requests': rejected,
+    }
+  }), 200
+
+
+@app.route('/admin/audit-log', methods=['GET'])
+def admin_audit_log():
+  if not _admin_key_valid(request):
+    return jsonify({'status': 'error', 'message': 'admin key required'}), 401
+  return jsonify({'status': 'success', 'log': audit_log}), 200
 
 
 if __name__ == '__main__':

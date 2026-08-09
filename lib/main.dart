@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'app_config.dart';
 import 'app_theme.dart';
 import 'login_widgets.dart';
 import 'signup_screen.dart';
 import 'dashboard_screen.dart';
-import 'officer_dashboard_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'forgot_password_screen.dart';
+import 'auth_service.dart';
 
 void main() {
   runApp(const SmartIrrigationApp());
@@ -89,77 +87,47 @@ class _LoginScreenState extends State<LoginScreen>
       return;
     }
 
-    if (email.toLowerCase() == 'admin' && password == 'admin') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const AdminDashboardScreen(adminName: 'Admin'),
-        ),
-      );
-      return;
-    }
-
     setState(() {
       isLoading = true;
     });
 
-    try {
-      final response = await http.post(
-        Uri.parse("$baseUrl/login"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "email": email,
-          "password": password,
-        }),
-      );
+    final authRes = await AuthService.instance.login(
+      identifier: email,
+      password: password,
+      targetRole: UserRole.farmer,
+    );
 
-      final data = jsonDecode(response.body);
+    if (!mounted) return;
 
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        if (data['role'] == 'admin') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) =>
-                  AdminDashboardScreen(adminName: data['name'] ?? 'Admin'),
-            ),
-          );
-          return;
-        } else if (data['role'] == 'officer') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => OfficerDashboardScreen(
-                officerName: data['name'] ?? email,
-              ),
-            ),
-          );
-          return;
-        }
-
+    if (authRes.success && authRes.user != null) {
+      final user = authRes.user!;
+      if (user.role == UserRole.admin) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AdminDashboardScreen(adminName: user.name),
+          ),
+        );
+      } else {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => DashboardScreen(
-              farmerName: data['name'],
-              farmerId: data['farmer_id'],
+              farmerName: user.name,
+              farmerId: user.id,
             ),
           ),
         );
-      } else {
-        _showMessage(data['error'] ?? "Login failed");
       }
-    } catch (e) {
-      if (!mounted) return;
-      _showMessage("Connection error: Could not reach server");
+    } else {
+      _showMessage(authRes.message);
     }
 
-    if (!mounted) return;
-    setState(() {
-      isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
   void _showMessage(String message) {

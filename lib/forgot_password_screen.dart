@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'app_config.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -18,7 +19,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   bool isLoading = false;
   int step = 1; // 1 = enter email, 2 = enter OTP, 3 = enter new password
 
-  final String baseUrl = "http://10.95.149.28:5000";
+  final String baseUrl = AppConfig.apiBaseUrl;
 
   void _showMessage(String message) {
     if (!mounted) return;
@@ -48,14 +49,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       if (!mounted) return;
 
       if (response.statusCode == 200) {
-        _showMessage("OTP sent to your email");
+        final devOtp = data['dev_otp'];
+        _showMessage(
+          devOtp == null
+              ? data['message'] ?? "OTP sent to your email"
+              : "${data['message']} OTP: $devOtp",
+        );
         setState(() => step = 2);
       } else {
         _showMessage(data['error'] ?? "Failed to send OTP");
       }
     } catch (e) {
       if (!mounted) return;
-      _showMessage("Connection error: Could not reach server");
+      _showMessage("Could not reach backend at $baseUrl");
     }
 
     if (!mounted) return;
@@ -86,13 +92,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       if (!mounted) return;
 
       if (response.statusCode == 200) {
+        _showMessage(data['message'] ?? "OTP verified");
         setState(() => step = 3);
       } else {
         _showMessage(data['error'] ?? "Invalid OTP");
       }
     } catch (e) {
       if (!mounted) return;
-      _showMessage("Connection error: Could not reach server");
+      _showMessage("Could not reach backend at $baseUrl");
     }
 
     if (!mounted) return;
@@ -131,14 +138,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       if (!mounted) return;
 
       if (response.statusCode == 200) {
-        _showMessage("Password reset successful! Please login.");
+        _showMessage(data['message'] ?? "Password reset successful! Please login.");
         Navigator.popUntil(context, (route) => route.isFirst);
       } else {
         _showMessage(data['error'] ?? "Failed to reset password");
       }
     } catch (e) {
       if (!mounted) return;
-      _showMessage("Connection error: Could not reach server");
+      _showMessage("Could not reach backend at $baseUrl");
     }
 
     if (!mounted) return;

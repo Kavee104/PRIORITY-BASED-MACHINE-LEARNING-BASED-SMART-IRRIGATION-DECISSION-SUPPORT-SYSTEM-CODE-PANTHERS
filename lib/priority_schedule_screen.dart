@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'app_config.dart';
+import 'weather_service.dart';
 
 class PriorityScheduleScreen extends StatefulWidget {
   const PriorityScheduleScreen({super.key});
@@ -10,16 +12,77 @@ class PriorityScheduleScreen extends StatefulWidget {
 }
 
 class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
- final String baseUrl = "http://10.95.149.28:5000";
+  final String baseUrl = AppConfig.apiBaseUrl;
 
   bool isLoading = true;
   String? errorMessage;
   List<dynamic> schedule = [];
+  // weather
+  Weather? _weather;
+  bool _isWeatherLoading = false;
+  String? _weatherError;
 
   @override
   void initState() {
     super.initState();
     fetchSchedule();
+  }
+
+  Future<void> _fetchWeatherButtonPressed() async {
+    setState(() {
+      _isWeatherLoading = true;
+      _weatherError = null;
+    });
+
+    try {
+      // example coords (Colombo) — change if needed
+      final w = await WeatherService.fetchWeatherByCoords(lat: 6.9271, lon: 79.8612);
+      if (!mounted) return;
+      setState(() {
+        _weather = w;
+      });
+
+      // show dialog
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Current Weather'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${w.temperature.toStringAsFixed(1)}°C — ${w.description}'),
+              const SizedBox(height: 8),
+              Text('Humidity: ${w.humidity}%'),
+              Text('Wind: ${w.windSpeed} m/s'),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _weatherError = e.toString();
+      });
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Weather Error'),
+          content: Text(_weatherError ?? 'Unknown error'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK')),
+          ],
+        ),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isWeatherLoading = false;
+      });
+    }
   }
 
   Future<void> fetchSchedule() async {
@@ -29,9 +92,14 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
     });
 
     try {
-      final response = await http.get(Uri.parse("$baseUrl/priority-schedule"));
+      final response = await http
+          .get(Uri.parse("$baseUrl/priority-schedule"))
+          .timeout(const Duration(seconds: 10));
 
       if (!mounted) return;
+
+      print("Response status: ${response.statusCode}");
+      print("Response body: ${response.body}");
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -41,14 +109,15 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
         });
       } else {
         setState(() {
-          errorMessage = "Failed to load priority schedule";
+          errorMessage = "Failed to load priority schedule (${response.statusCode})";
           isLoading = false;
         });
       }
     } catch (e) {
+      print("EXACT ERROR: $e");
       if (!mounted) return;
       setState(() {
-        errorMessage = "Connection error: Could not reach server";
+        errorMessage = "Connection error: $e";
         isLoading = false;
       });
     }
@@ -71,6 +140,11 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: isLoading ? null : fetchSchedule,
+          ),
+          IconButton(
+            icon: _isWeatherLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.cloud),
+            onPressed: _isWeatherLoading ? null : _fetchWeatherButtonPressed,
+            tooltip: 'Fetch weather',
           ),
         ],
       ),
@@ -124,7 +198,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
         itemCount: schedule.length,
         itemBuilder: (context, index) {
           final item = schedule[index];
-          final rank = item['Rank'] as int;
+          final rank = item['Rank'] ?? (index + 1);
 
           return Container(
             margin: const EdgeInsets.only(bottom: 14),
@@ -160,12 +234,12 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "${item['F_Name']} ${item['L_Name']}",
+                        "${item['F_Name'] ?? ''} ${item['L_Name'] ?? ''}",
                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        "${item['ZoneName']} · Field #${item['FieldID']} · ${item['Size']} ac",
+                        "${item['ZoneName'] ?? ''} · Field #${item['FieldID'] ?? ''} · ${item['Size'] ?? ''} ac",
                         style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
                       ),
                       const SizedBox(height: 8),
@@ -174,7 +248,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                           Icon(Icons.water_drop, size: 15, color: Colors.blue.shade400),
                           const SizedBox(width: 4),
                           Text(
-                            "${item['PredictedVolume']} L predicted",
+                            "${item['PredictedVolume'] ?? 0} L predicted",
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                           ),
                         ],
@@ -185,7 +259,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                           Icon(Icons.cloud, size: 15, color: Colors.grey.shade500),
                           const SizedBox(width: 4),
                           Text(
-                            "Rain forecast: ${item['RainfallForecast']} mm (${item['Date']})",
+                            "Rain forecast: ${item['RainfallForecast'] ?? 0} mm (${item['Date'] ?? ''})",
                             style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
                           ),
                         ],
@@ -196,12 +270,13 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                           Icon(Icons.water, size: 15, color: Colors.teal.shade400),
                           const SizedBox(width: 4),
                           Text(
-                            "Reservoir level: ${item['WaterLevel']}",
+                            "Reservoir level: ${item['WaterLevel'] ?? ''}",
                             style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
                           ),
                         ],
                       ),
-                      if (item['Explanation'] != null && item['Explanation'].toString().isNotEmpty) ...[
+                      if (item['Explanation'] != null &&
+                          item['Explanation'].toString().isNotEmpty) ...[
                         const SizedBox(height: 10),
                         Container(
                           padding: const EdgeInsets.all(10),

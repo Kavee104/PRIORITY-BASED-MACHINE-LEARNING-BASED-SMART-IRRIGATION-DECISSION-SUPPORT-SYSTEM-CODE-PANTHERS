@@ -57,18 +57,22 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
       if (response.statusCode == 200) {
         final devOtp = data['dev_otp'];
+        final code = (devOtp ?? "123456").toString();
+        otpController.text = code;
         _showMessage(
-          devOtp == null ? (data['message'] ?? "OTP sent to your email") : "${data['message']} (Dev OTP: $devOtp)",
+          devOtp == null ? (data['message'] ?? "OTP sent to your email") : "${data['message']} (Code: $devOtp)",
           AppColors.emerald,
         );
         setState(() => step = 2);
       } else {
-        _showMessage(data['error'] ?? "OTP sent to demo email (123456)", AppColors.emerald);
+        otpController.text = "123456";
+        _showMessage(data['error'] ?? "Demo OTP code pre-filled (123456)", AppColors.emerald);
         setState(() => step = 2);
       }
     } catch (e) {
       if (!mounted) return;
-      _showMessage("Verification code sent to $email (Demo OTP: 123456)", AppColors.emerald);
+      otpController.text = "123456";
+      _showMessage("Demo OTP code pre-filled (123456)", AppColors.emerald);
       setState(() => step = 2);
     } finally {
       if (mounted) setState(() => isLoading = false);
@@ -174,6 +178,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Widget _buildStep2() {
+    final codeDisplay = otpController.text.isNotEmpty ? otpController.text : '123456';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -181,7 +186,32 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           "Enter the 6-digit verification code sent to ${emailController.text.trim()}",
           style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.lightGreen,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.primaryGreen.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.mark_email_read_rounded, color: AppColors.primaryDarkGreen, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "Demo verification code '$codeDisplay' pre-filled below.",
+                  style: const TextStyle(
+                    color: AppColors.primaryDarkGreen,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         CustomTextField(
           controller: otpController,
           labelText: "Verification Code (OTP)",

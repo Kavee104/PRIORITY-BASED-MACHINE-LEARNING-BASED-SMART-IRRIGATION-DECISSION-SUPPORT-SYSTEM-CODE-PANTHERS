@@ -1,0 +1,109 @@
+{
+  "47270": [
+    {
+      "FieldID": 101,
+      "FarmerID": 47270,
+      "ZoneNo": 5,
+      "Size": 7.0,
+      "CropType": "General",
+      "Moisture": "37%",
+      "Status": "Optimal"
+    }
+  ],
+  "93804": [
+    {
+      "FieldID": 3,
+      "FarmerID": 93804,
+      "ZoneNo": 5,
+      "Size": 8.0,
+      "CropType": "General",
+      "Moisture": "39%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 4,
+      "FarmerID": 93804,
+      "ZoneNo": 5,
+      "Size": 9.0,
+      "CropType": "General",
+      "Moisture": "41%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 5,
+      "FarmerID": 93804,
+      "ZoneNo": 5,
+      "Size": 7.0,
+      "CropType": "General",
+      "Moisture": "73%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 6,
+      "FarmerID": 93804,
+      "ZoneNo": 6,
+      "Size": 9.0,
+      "CropType": "General",
+      "Moisture": "43%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 7,
+      "FarmerID": 93804,
+      "ZoneNo": 5,
+      "Size": 8.0,
+      "CropType": "General",
+      "Moisture": "77%",
+      "Status": "Needs Water"
+    }
+  ],
+  "16584": [
+    {
+      "FieldID": 8,
+      "FarmerID": 16584,
+      "ZoneNo": 11,
+      "Size": 2.0,
+      "CropType": "General",
+      "Moisture": "69%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 9,
+      "FarmerID": 16584,
+      "ZoneNo": 2,
+      "Size": 2.0,
+      "CropType": "General",
+      "Moisture": "47%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 10,
+      "FarmerID": 16584,
+      "ZoneNo": 6,
+      "Size": 9.0,
+      "CropType": "General",
+      "Moisture": "76%",
+      "Status": "Needs Water"
+    }
+  ],
+  "9": [
+    {
+      "FieldID": 11,
+      "FarmerID": 9,
+      "ZoneNo": 7,
+      "Size": 7.0,
+      "CropType": "General",
+      "Moisture": "80%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 12,
+      "FarmerID": 9,
+      "ZoneNo": 6,
+      "Size": 9.0,
+      "CropType": "General",
+      "Moisture": "78%",
+      "Status": "Optimal"
+    }
+  ]
+}

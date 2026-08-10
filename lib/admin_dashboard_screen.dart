@@ -6,6 +6,7 @@ import 'app_theme.dart';
 import 'auth_service.dart';
 import 'main.dart';
 import 'user_management_screen.dart';
+import 'priority_schedule_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final String adminName;
@@ -48,11 +49,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     setState(() => _isLoading = true);
 
     await Future.wait([
-      _fetchStats(),
       _fetchWaterRequests(),
       _fetchAuditLog(),
       _fetchUsers(),
     ]);
+
+    await _fetchStats();
 
     if (mounted) {
       setState(() => _isLoading = false);
@@ -71,17 +73,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     } catch (_) {}
 
     if (mounted) {
-      final accounts = AuthService.instance.getAllAccounts();
+      final combinedUsers = _getCombinedUsers();
       final allRequests = _getCombinedRequests();
       final pendingCount = allRequests.where((r) => r['Status'] == 'Pending').length;
       final approvedCount = allRequests.where((r) => r['Status'] == 'Approved').length;
       final rejectedCount = allRequests.where((r) => r['Status'] == 'Rejected').length;
 
+      final farmerCount = combinedUsers.where((u) => u['role'].toString().toLowerCase() == 'farmer').length;
+      final officerCount = combinedUsers.where((u) => u['role'].toString().toLowerCase() == 'officer').length;
+      final adminCount = combinedUsers.where((u) => u['role'].toString().toLowerCase() == 'admin').length;
+
       setState(() {
         _stats = {
-          'total_users': accounts.length,
-          'farmers': accounts.where((a) => a.role == UserRole.farmer).length,
-          'admins': accounts.where((a) => a.role == UserRole.admin).length,
+          'total_users': combinedUsers.length,
+          'farmers': farmerCount,
+          'officers': officerCount,
+          'admins': adminCount,
           'total_requests': allRequests.length,
           'pending_requests': pendingCount,
           'approved_requests': approvedCount,
@@ -101,6 +108,38 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       combinedMap[r['RequestID'] as int] = r;
     }
     return combinedMap.values.toList();
+  }
+
+  List<Map<String, dynamic>> _getCombinedUsers() {
+    final userMap = <String, Map<String, dynamic>>{};
+
+    // 1. Add local AuthService accounts
+    final accounts = AuthService.instance.getAllAccounts();
+    for (var a in accounts) {
+      final key = a.username.trim().toLowerCase();
+      userMap[key] = {
+        'username': a.username,
+        'email': a.email,
+        'name': a.name,
+        'role': a.roleString,
+      };
+    }
+
+    // 2. Add remote API users
+    for (var u in _apiUsers) {
+      final uname = (u['username'] ?? u['email'] ?? '').toString().trim();
+      if (uname.isNotEmpty) {
+        final key = uname.toLowerCase();
+        userMap[key] = {
+          'username': uname,
+          'email': u['email'] ?? userMap[key]?['email'] ?? '$key@example.com',
+          'name': u['name'] ?? userMap[key]?['name'] ?? uname,
+          'role': (u['role'] ?? userMap[key]?['role'] ?? 'farmer').toString(),
+        };
+      }
+    }
+
+    return userMap.values.toList();
   }
 
   Future<void> _fetchWaterRequests() async {
@@ -217,6 +256,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Widget _buildSidebar(BuildContext context) {
     final navItems = [
       {'icon': Icons.admin_panel_settings_rounded, 'title': 'Dashboard'},
+      {'icon': Icons.list_alt_rounded, 'title': 'Priority Schedule'},
       {'icon': Icons.supervised_user_circle_rounded, 'title': 'User Management'},
     ];
 
@@ -288,7 +328,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                     onTap: () {
-                      if (title == 'User Management') {
+                      if (title == 'Priority Schedule') {
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const PriorityScheduleScreen()));
+                      } else if (title == 'User Management') {
                         Navigator.push(context, MaterialPageRoute(builder: (_) => const UserManagementScreen()));
                       } else {
                         setState(() => _selectedNavItem = title);
@@ -524,6 +566,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final rejectedReqs = _stats['rejected_requests'] ?? 0;
     final totalReqs = _stats['total_requests'] ?? 0;
 
+    final farmerCnt = _stats['farmers'] ?? 0;
+    final adminCnt = _stats['admins'] ?? 0;
+    final userSubtitle = "${farmerCnt == 1 ? '1 Farmer' : '$farmerCnt Farmers'}, ${adminCnt == 1 ? '1 Admin' : '$adminCnt Admins'}";
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -549,7 +595,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   value: "$totalUsers",
                   badgeText: "Live",
                   badgeColor: AppColors.primaryGreen,
-                  subtitle: "${_stats['farmers'] ?? 0} Farmers, ${_stats['officers'] ?? 0} Officers",
+                  subtitle: userSubtitle,
                   iconColor: AppColors.primaryDarkGreen,
                 ),
                 _MetricStatCard(
@@ -698,11 +744,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       sBg = Colors.red.withValues(alpha: 0.1);
                     }
 
+                    final rawZone = "${r['ZoneName'] ?? ''}";
+                    final fieldLabel = (!rawZone.contains("Field #") && r['FieldID'] != null)
+                        ? "$rawZone (Field #${r['FieldID']})"
+                        : rawZone;
+
                     return DataRow(
                       cells: [
                         DataCell(Text("#$reqId", style: const TextStyle(fontWeight: FontWeight.bold))),
                         DataCell(Text("${r['farmer_name'] ?? 'Unknown'}")),
-                        DataCell(Text("${r['ZoneName'] ?? ''} (Field #${r['FieldID']})")),
+                        DataCell(Text(fieldLabel)),
                         DataCell(Text("${r['RequestTime'] ?? ''}")),
                         DataCell(
                           Container(
@@ -764,6 +815,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   // Registered Users Section (from API)
   // -------------------------------------------------------------------------
   Widget _buildUsersSection() {
+    final displayUsers = _getCombinedUsers();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -783,7 +836,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    "${_apiUsers.length} Users",
+                    "${displayUsers.length} Users",
                     style: const TextStyle(color: AppColors.primaryDarkGreen, fontWeight: FontWeight.bold, fontSize: 12),
                   ),
                 ),
@@ -832,7 +885,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   DataColumn(label: Text("Role", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
                   DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
                 ],
-                rows: _apiUsers.map<DataRow>((user) {
+                rows: displayUsers.map<DataRow>((user) {
                   final roleStr = (user['role'] ?? 'farmer').toString().toUpperCase();
                   return DataRow(
                     cells: [

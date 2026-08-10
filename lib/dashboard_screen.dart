@@ -10,11 +10,13 @@ import 'main.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String farmerName;
+  final String farmerEmail;
   final int farmerId;
 
   const DashboardScreen({
     super.key,
     required this.farmerName,
+    required this.farmerEmail,
     required this.farmerId,
   });
 
@@ -33,8 +35,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Profile & Settings Controllers
   late TextEditingController _nameController;
   late TextEditingController _emailController;
-  late TextEditingController _phoneController;
-  late TextEditingController _locationController;
+  late TextEditingController _zoneController;
+  late TextEditingController _sizeController;
   late TextEditingController _currentPasswordController;
   late TextEditingController _newPasswordController;
 
@@ -50,9 +52,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _currentFarmerName = widget.farmerName;
     _nameController = TextEditingController(text: widget.farmerName);
-    _emailController = TextEditingController(text: "farmer${widget.farmerId}@agtech.com");
-    _phoneController = TextEditingController(text: "+94 77 123 4567");
-    _locationController = TextEditingController(text: "Zone A - Mahaweli Basin");
+    _emailController = TextEditingController(text: widget.farmerEmail);
+    _zoneController = TextEditingController(text: "1");
+    _sizeController = TextEditingController(text: "4.5");
     _currentPasswordController = TextEditingController();
     _newPasswordController = TextEditingController();
     loadData();
@@ -62,8 +64,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
-    _phoneController.dispose();
-    _locationController.dispose();
+    _zoneController.dispose();
+    _sizeController.dispose();
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     super.dispose();
@@ -95,13 +97,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final fieldMap = <int, dynamic>{};
 
     for (var f in localFields) {
-      if (f['FieldID'] != null && f['FieldID'] is int) {
-        fieldMap[f['FieldID'] as int] = f;
+      final fid = int.tryParse("${f['FieldID']}");
+      if (fid != null) {
+        fieldMap[fid] = f;
       }
     }
     for (var f in remoteFields) {
-      if (f['FieldID'] != null && f['FieldID'] is int) {
-        fieldMap[f['FieldID'] as int] = f;
+      final fid = int.tryParse("${f['FieldID']}");
+      if (fid != null) {
+        fieldMap[fid] = f;
       }
     }
 
@@ -109,10 +113,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final localReqs = AuthService.instance.getFarmerRequests(widget.farmerId).map((r) => r.toJson()).toList();
     final combinedMap = <int, dynamic>{};
     for (var r in remoteReqs) {
-      if (r['RequestID'] != null) combinedMap[r['RequestID'] as int] = r;
+      final rid = int.tryParse("${r['RequestID']}");
+      if (rid != null) {
+        combinedMap[rid] = r;
+      }
     }
     for (var r in localReqs) {
-      combinedMap[r['RequestID'] as int] = r;
+      final rid = int.tryParse("${r['RequestID']}");
+      if (rid != null) {
+        combinedMap[rid] = r;
+      }
     }
 
     if (mounted) {
@@ -120,6 +130,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         fields = fieldMap.values.toList();
         requests = combinedMap.values.toList();
         isLoading = false;
+        if (fields.isNotEmpty) {
+          final firstField = fields.first;
+          _zoneController.text = "${firstField['ZoneNo'] ?? ''}";
+          _sizeController.text = "${firstField['Size'] ?? ''}";
+        }
       });
     }
   }
@@ -128,22 +143,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Find zone name
     String zoneName = "Zone (Field #$fieldId)";
     for (var f in fields) {
-      if (f['FieldID'] == fieldId) {
-        zoneName = "Zone ${f['ZoneNo']} (${f['CropType'] ?? 'Crop'})";
+      final fid = int.tryParse("${f['FieldID']}");
+      if (fid == fieldId) {
+        zoneName = "Zone ${f['ZoneNo']} (Field #$fieldId)";
         break;
       }
     }
 
-    // Record locally in shared AuthService store for instant real-time Admin visibility
-    AuthService.instance.addWaterRequest(
-      farmerId: widget.farmerId,
-      fieldId: fieldId,
-      zoneName: zoneName,
-      farmerName: _currentFarmerName,
-    );
-
     try {
-      await http.post(
+      final response = await http.post(
         Uri.parse("$baseUrl/request-water"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
@@ -152,8 +160,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }),
       ).timeout(const Duration(seconds: 3));
 
-      _showMessage("Water request submitted successfully!", AppColors.primaryGreen);
+      if (response.statusCode == 201) {
+        _showMessage("Water request submitted successfully!", AppColors.primaryGreen);
+        loadData();
+      } else {
+        // Server returned non-201 error, fallback to local registration
+        AuthService.instance.addWaterRequest(
+          farmerId: widget.farmerId,
+          fieldId: fieldId,
+          zoneName: zoneName,
+          farmerName: _currentFarmerName,
+        );
+        _showMessage("Water request submitted!", AppColors.primaryGreen);
+        loadData();
+      }
     } catch (e) {
+      // Network error or timeout, fallback to local registration
+      AuthService.instance.addWaterRequest(
+        farmerId: widget.farmerId,
+        fieldId: fieldId,
+        zoneName: zoneName,
+        farmerName: _currentFarmerName,
+      );
       _showMessage("Water request submitted and synced to Admin!", AppColors.primaryGreen);
     }
 
@@ -177,10 +205,56 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  void _saveProfileSettings() {
+  Future<void> _saveProfileSettings() async {
     setState(() {
       _isSavingSettings = true;
     });
+
+    final currentPw = _currentPasswordController.text.trim();
+    final newPw = _newPasswordController.text.trim();
+
+    if (currentPw.isNotEmpty || newPw.isNotEmpty) {
+      if (currentPw.isEmpty || newPw.isEmpty) {
+        setState(() => _isSavingSettings = false);
+        _showMessage("Please enter both current and new password to change password", Colors.orangeAccent);
+        return;
+      }
+
+      // Update password locally in AuthService
+      final localSuccess = AuthService.instance.changePassword(
+        userId: widget.farmerId,
+        userEmail: widget.farmerEmail,
+        oldPassword: currentPw,
+        newPassword: newPw,
+      );
+
+      // Update password on backend API
+      bool remoteSuccess = false;
+      try {
+        final resp = await http.post(
+          Uri.parse("$baseUrl/change-password"),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({
+            "username": widget.farmerEmail.isNotEmpty ? widget.farmerEmail : _currentFarmerName,
+            "old_password": currentPw,
+            "new_password": newPw,
+          }),
+        ).timeout(const Duration(seconds: 3));
+
+        if (resp.statusCode == 200) {
+          remoteSuccess = true;
+        }
+      } catch (_) {}
+
+      if (!localSuccess && !remoteSuccess) {
+        setState(() => _isSavingSettings = false);
+        _showMessage("Current password is incorrect!", Colors.redAccent);
+        return;
+      }
+
+      _currentPasswordController.clear();
+      _newPasswordController.clear();
+    }
 
     final newName = _nameController.text.trim();
     if (newName.isNotEmpty) {
@@ -189,14 +263,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     }
 
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (mounted) {
-        setState(() {
-          _isSavingSettings = false;
-        });
-        _showMessage("Profile and settings saved successfully!", AppColors.primaryGreen);
-      }
-    });
+    final zoneVal = int.tryParse(_zoneController.text.trim());
+    final sizeVal = double.tryParse(_sizeController.text.trim());
+    if (fields.isNotEmpty && zoneVal != null && sizeVal != null) {
+      final firstField = fields.first;
+      firstField['ZoneNo'] = zoneVal;
+      firstField['Size'] = sizeVal;
+
+      try {
+        final localFields = AuthService.instance.getFarmerFields(widget.farmerId);
+        for (var lf in localFields) {
+          if (lf['FieldID'] == firstField['FieldID']) {
+            lf['ZoneNo'] = zoneVal;
+            lf['Size'] = sizeVal;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) {
+      setState(() {
+        _isSavingSettings = false;
+      });
+      _showMessage("Profile and settings saved successfully!", AppColors.primaryGreen);
+    }
   }
 
   void _showFieldPicker() {
@@ -502,126 +592,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 16),
                 CustomTextField(
-                  controller: _phoneController,
-                  labelText: "Contact Phone Number",
-                  prefixIcon: Icons.phone_rounded,
-                  keyboardType: TextInputType.phone,
+                  controller: _zoneController,
+                  labelText: "Zone No",
+                  prefixIcon: Icons.map_rounded,
+                  keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 16),
                 CustomTextField(
-                  controller: _locationController,
-                  labelText: "Farm District / Region",
-                  prefixIcon: Icons.location_on_rounded,
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Section 2: Farm & Irrigation Preferences Card
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.tune_rounded, color: AppColors.teal, size: 22),
-                    SizedBox(width: 10),
-                    Text(
-                      "Smart Irrigation Preferences",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Preferred Water Unit", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.secondaryText)),
-                          const SizedBox(height: 8),
-                          DropdownButtonFormField<String>(
-                            value: _waterUnit,
-                            decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.border)),
-                              fillColor: AppColors.inputBackground,
-                              filled: true,
-                            ),
-                            items: ['Liters (L)', 'Gallons (gal)', 'Cubic Meters (m³)']
-                                .map((unit) => DropdownMenuItem(value: unit, child: Text(unit)))
-                                .toList(),
-                            onChanged: (val) {
-                              if (val != null) setState(() => _waterUnit = val);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Soil Moisture Alert Level", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.secondaryText)),
-                          const SizedBox(height: 8),
-                          DropdownButtonFormField<String>(
-                            value: _moistureThreshold,
-                            decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.border)),
-                              fillColor: AppColors.inputBackground,
-                              filled: true,
-                            ),
-                            items: ['40%', '50%', '60%', '70%']
-                                .map((level) => DropdownMenuItem(value: level, child: Text("Below $level")))
-                                .toList(),
-                            onChanged: (val) {
-                              if (val != null) setState(() => _moistureThreshold = val);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-                const Divider(color: AppColors.border),
-                const SizedBox(height: 12),
-
-                SwitchListTile(
-                  activeTrackColor: AppColors.lightGreen,
-                  activeThumbColor: AppColors.primaryGreen,
-                  title: const Text("Soil Moisture Drop Notifications", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text("Receive alerts when field soil moisture drops below threshold"),
-                  value: _enableMoistureAlerts,
-                  onChanged: (val) => setState(() => _enableMoistureAlerts = val),
-                ),
-                SwitchListTile(
-                  activeTrackColor: AppColors.lightGreen,
-                  activeThumbColor: AppColors.primaryGreen,
-                  title: const Text("Weather Forecast & Rain Alerts", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text("Get rain warning updates to optimize irrigation scheduling"),
-                  value: _enableWeatherAlerts,
-                  onChanged: (val) => setState(() => _enableWeatherAlerts = val),
+                  controller: _sizeController,
+                  labelText: "Field Size (Acres)",
+                  prefixIcon: Icons.square_foot_rounded,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 ),
               ],
             ),
@@ -759,7 +740,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    "Welcome back, $_currentFarmerName 👋",
+                    "Welcome, $_currentFarmerName 👋",
                     style: const TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
@@ -1057,9 +1038,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         sBg = Colors.amber.withValues(alpha: 0.15);
                       }
 
+                      final rawZone = "${r['ZoneName'] ?? ''}";
+                      final fieldLabel = (!rawZone.contains("Field #") && r['FieldID'] != null)
+                          ? "$rawZone (Field #${r['FieldID']})"
+                          : rawZone;
+
                       return DataRow(
                         cells: [
-                          DataCell(Text("${r['ZoneName']} (Field #${r['FieldID']})", style: const TextStyle(fontWeight: FontWeight.bold))),
+                          DataCell(Text(fieldLabel, style: const TextStyle(fontWeight: FontWeight.bold))),
                           DataCell(Text("${r['RequestTime']}")),
                           DataCell(
                             Container(
@@ -1131,18 +1117,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: Icon(
-              Icons.settings_rounded,
-              color: _selectedNavItem == 'Settings' ? AppColors.primaryGreen : AppColors.secondaryText,
-            ),
-            tooltip: "Profile Settings",
-            onPressed: () {
-              setState(() {
-                _selectedNavItem = 'Settings';
-              });
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.logout_rounded, color: AppColors.secondaryText),
             tooltip: "Logout",

@@ -207,8 +207,9 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       padding: const EdgeInsets.all(20),
       child: Form(
         key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: AutofillGroup(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header
             Container(
@@ -316,8 +317,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
             const SizedBox(height: 24),
             _buildLabel('Username / Email'),
-            const SizedBox(height: 8),
-            TextFormField(
+            const SizedBox(height: 8),             TextFormField(
               controller: _usernameController,
               textInputAction: TextInputAction.next,
               decoration: _inputDeco('Enter username or email', Icons.person_outline),
@@ -423,6 +423,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           ],
         ),
       ),
+     ),
     );
   }
 

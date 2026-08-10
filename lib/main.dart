@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'app_config.dart';
 import 'app_theme.dart';
 import 'login_widgets.dart';
@@ -100,6 +101,7 @@ class _LoginScreenState extends State<LoginScreen>
     if (!mounted) return;
 
     if (authRes.success && authRes.user != null) {
+      TextInput.finishAutofillContext(shouldSave: true);
       final user = authRes.user!;
       if (user.role == UserRole.admin) {
         Navigator.pushReplacement(
@@ -114,6 +116,7 @@ class _LoginScreenState extends State<LoginScreen>
           MaterialPageRoute(
             builder: (context) => DashboardScreen(
               farmerName: user.name,
+              farmerEmail: user.email,
               farmerId: user.id,
             ),
           ),
@@ -393,7 +396,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           const SizedBox(height: 28),
           const Text(
-            "Welcome back 👋",
+            "Welcome 👋",
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -477,19 +480,19 @@ class _LoginScreenState extends State<LoginScreen>
           const SizedBox(height: 24),
           Row(
             children: [
-              Expanded(child: Divider(color: AppColors.border.withValues(alpha: 0.8))),
+              Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Text(
                   "Smart Water Management",
                   style: TextStyle(
                     fontSize: 12,
-                    color: AppColors.textLight,
+                    color: Colors.grey.shade500,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
-              Expanded(child: Divider(color: AppColors.border.withValues(alpha: 0.8))),
+              Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
             ],
           ),
           const SizedBox(height: 20),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
@@ -68,15 +69,6 @@ class _SignupScreenState extends State<SignupScreen> {
       isLoading = true;
     });
 
-    // Register locally in AuthService for RBAC
-    AuthService.instance.registerAccount(
-      username: email.contains('@') ? email.split('@')[0] : email,
-      email: email,
-      password: password,
-      roleStr: 'farmer',
-      name: "$firstName $lastName",
-    );
-
     try {
       final response = await http.post(
         Uri.parse("$baseUrl/signup"),
@@ -90,18 +82,31 @@ class _SignupScreenState extends State<SignupScreen> {
       ).timeout(const Duration(seconds: 4));
 
       final data = jsonDecode(response.body);
+      final newFarmerId = (data is Map && data['farmer_id'] is int) ? data['farmer_id'] as int : null;
+
+      AuthService.instance.registerAccount(
+        username: email.contains('@') ? email.split('@')[0] : email,
+        email: email,
+        password: password,
+        roleStr: 'farmer',
+        name: "$firstName $lastName",
+        customId: newFarmerId,
+      );
 
       if (!mounted) return;
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        TextInput.finishAutofillContext(shouldSave: true);
         _showMessage("Signup successful! You can now login.", AppColors.emerald);
         Navigator.popUntil(context, (route) => route.isFirst);
       } else {
+        TextInput.finishAutofillContext(shouldSave: true);
         _showMessage(data['error'] ?? "Account registered locally!", AppColors.emerald);
         Navigator.popUntil(context, (route) => route.isFirst);
       }
     } catch (e) {
       if (!mounted) return;
+      TextInput.finishAutofillContext(shouldSave: true);
       _showMessage("Farmer Account created successfully! (RBAC Ready)", AppColors.emerald);
       Navigator.popUntil(context, (route) => route.isFirst);
     } finally {
@@ -227,6 +232,8 @@ class _SignupScreenState extends State<SignupScreen> {
                   labelText: "Confirm Password",
                   prefixIcon: Icons.lock_outline_rounded,
                   obscureText: obscureConfirm,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => signupUser(),
                   suffixIcon: IconButton(
                     icon: Icon(
                       obscureConfirm ? Icons.visibility_off_rounded : Icons.visibility_rounded,

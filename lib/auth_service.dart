@@ -8,7 +8,7 @@ class UserAccount {
   final int id;
   final String username;
   final String email;
-  final String password;
+  String password;
   final String name;
   final UserRole role;
 
@@ -76,6 +76,7 @@ class AuthService {
   final Map<String, UserAccount> _accounts = {};
   final List<WaterRequest> _waterRequests = [];
   final List<Map<String, dynamic>> _auditLogs = [];
+  final Map<int, List<Map<String, dynamic>>> _farmerFields = {};
   int _nextRequestId = 101;
 
   void _initDefaultAccounts() {
@@ -100,6 +101,37 @@ class AuthService {
 
     // Seed initial audit log
     addAuditLog(action: 'SYSTEM_INIT', user: 'system', details: 'Smart Irrigation Platform Started');
+  }
+
+  // -------------------------------------------------------------------------
+  // Farmer Fields (local demo store)
+  // -------------------------------------------------------------------------
+  List<Map<String, dynamic>> getFarmerFields(int farmerId) {
+    if (!_farmerFields.containsKey(farmerId)) {
+      _farmerFields[farmerId] = [];
+    }
+    return List.unmodifiable(_farmerFields[farmerId]!);
+  }
+
+  Map<String, dynamic> addFarmerField({required int farmerId, required int zoneNo, required double size, String? cropType}) {
+    final existingFields = _farmerFields[farmerId] ?? [];
+    final maxFid = existingFields.fold<int>(0, (max, f) {
+      final fid = int.tryParse("${f['FieldID']}") ?? 0;
+      return fid > max ? fid : max;
+    });
+    final newId = maxFid + 1;
+    final field = {
+      "FieldID": newId,
+      "ZoneNo": zoneNo,
+      "Size": size,
+      "CropType": cropType ?? 'General',
+      "Moisture": "0%",
+      "Status": "Pending",
+    };
+    _farmerFields.putIfAbsent(farmerId, () => []);
+    _farmerFields[farmerId]!.insert(0, field);
+    addAuditLog(action: 'FIELD_CREATED', user: 'farmer:$farmerId', details: 'Added field #$newId for farmer $farmerId');
+    return field;
   }
 
   void _addAccount(UserAccount account) {
@@ -129,12 +161,13 @@ class AuthService {
     required int fieldId,
     required String zoneName,
     required String farmerName,
+    int? requestId,
   }) {
     final now = DateTime.now();
     final timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} (Just now)";
 
     final req = WaterRequest(
-      requestID: _nextRequestId++,
+      requestID: requestId ?? _nextRequestId++,
       farmerId: farmerId,
       fieldID: fieldId,
       zoneName: zoneName,
@@ -208,6 +241,7 @@ class AuthService {
     required String roleStr,
     String? email,
     String? name,
+    int? customId,
   }) {
     final cleanUsername = username.trim().toLowerCase();
     final cleanEmail = (email ?? '$cleanUsername@example.com').trim().toLowerCase();
@@ -218,7 +252,7 @@ class AuthService {
 
     UserRole role = roleStr.toLowerCase() == 'admin' ? UserRole.admin : UserRole.farmer;
 
-    final newId = DateTime.now().millisecondsSinceEpoch % 100000;
+    final newId = customId ?? (DateTime.now().millisecondsSinceEpoch % 100000);
     final account = UserAccount(
       id: newId,
       username: username.trim(),
@@ -235,6 +269,36 @@ class AuthService {
       details: 'Created user "${account.username}" with ${role.name.toUpperCase()} role',
     );
     return true;
+  }
+
+  bool changePassword({
+    required int userId,
+    String? userEmail,
+    required String oldPassword,
+    required String newPassword,
+  }) {
+    final cleanOld = oldPassword.trim();
+    final cleanNew = newPassword.trim();
+    final cleanEmail = (userEmail ?? '').trim().toLowerCase();
+
+    for (var account in _accounts.values) {
+      if (account.id == userId ||
+          (cleanEmail.isNotEmpty &&
+              (account.email.toLowerCase() == cleanEmail ||
+                  account.username.toLowerCase() == cleanEmail))) {
+        if (account.password != cleanOld) {
+          return false;
+        }
+        account.password = cleanNew;
+        addAuditLog(
+          action: 'PASSWORD_CHANGED',
+          user: account.name,
+          details: 'Updated account password',
+        );
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Authenticates user and enforces Role-Based Access Control (RBAC)
@@ -293,11 +357,12 @@ class AuthService {
         final user = UserAccount(
           id: data['farmer_id'] ?? data['id'] ?? 999,
           username: identifier,
-          email: identifier,
+          email: data['email'] ?? identifier,
           password: password,
           name: data['name'] ?? identifier,
           role: targetRole,
         );
+        _addAccount(user);
         addAuditLog(
           action: 'USER_LOGIN',
           user: user.name,

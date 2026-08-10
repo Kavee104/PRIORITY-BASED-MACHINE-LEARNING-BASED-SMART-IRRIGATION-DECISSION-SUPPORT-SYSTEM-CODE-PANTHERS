@@ -1,6 +1,49 @@
 {
   "admin": {
     "password_hash": "scrypt:32768:8:1$CWhRTnxo2q9LwLTS$cf142c6ba058cab0838290cd201e991baf74d3ab260b78f92cb2bb70f201e4e5bc5a1bff1f3a25f8937366d1631bdd283907ec4f1a10cf7b885fb7a0fda90fc8",
-    "role": "admin"
+    "role": "admin",
+    "id": 71304
+  },
+  "dil": {
+    "id": 47270,
+    "password_hash": "scrypt:32768:8:1$eDJKg8nHyrYIr1xW$1bd477c460fedea1cbb8110b4de62cbda967f471ebee93c5a595819efbe690f791e525e7815e1c2ea4323d23c8c8c780ddf6f68a17b7217b65beac955b299510",
+    "role": "farmer",
+    "email": "dil@gmail.com",
+    "name": "dil wan"
+  },
+  "dil@gmail.com": {
+    "id": 47270,
+    "password_hash": "scrypt:32768:8:1$eDJKg8nHyrYIr1xW$1bd477c460fedea1cbb8110b4de62cbda967f471ebee93c5a595819efbe690f791e525e7815e1c2ea4323d23c8c8c780ddf6f68a17b7217b65beac955b299510",
+    "role": "farmer",
+    "email": "dil@gmail.com",
+    "name": "dil wan"
+  },
+  "dq": {
+    "id": 8,
+    "password_hash": "scrypt:32768:8:1$pmKiPdVZ0zySDJ7X$bfe8562d83ff4d623c5f8d114c0d7e95568fe8331cc2c15cb7517480d66e885f56bbdcd5eaeff015c1b85f777e4e274c893d9f96229ee28ef770c7b329c8c122",
+    "role": "farmer",
+    "email": "dq@gmail.com",
+    "name": "d q"
+  },
+  "dq@gmail.com": {
+    "id": 8,
+    "password_hash": "scrypt:32768:8:1$pmKiPdVZ0zySDJ7X$bfe8562d83ff4d623c5f8d114c0d7e95568fe8331cc2c15cb7517480d66e885f56bbdcd5eaeff015c1b85f777e4e274c893d9f96229ee28ef770c7b329c8c122",
+    "role": "farmer",
+    "email": "dq@gmail.com",
+    "name": "d q"
+  },
+  "chiku123": {
+    "id": 9,
+    "password_hash": "scrypt:32768:8:1$UZYg7tcvrvywSE4D$609f7f863ecd71aeb602415d5a623f8ce2393bd5d92a4d0bd18ecb898b21628adfd3660fb32503bb8cb1e8333294b3ea5fa3e3fa594969ce69e15827abd76956",
+    "role": "farmer",
+    "email": "chiku123@gmail.com",
+    "name": "Chi Kuu"
+  },
+  "chiku123@gmail.com": {
+    "id": 9,
+    "password_hash": "scrypt:32768:8:1$UZYg7tcvrvywSE4D$609f7f863ecd71aeb602415d5a623f8ce2393bd5d92a4d0bd18ecb898b21628adfd3660fb32503bb8cb1e8333294b3ea5fa3e3fa594969ce69e15827abd76956",
+    "role": "farmer",
+    "email": "chiku123@gmail.com",
+    "name": "Chi Kuu"
   }
 }

@@ -162,6 +162,7 @@ class CustomTextField extends StatefulWidget {
   final TextInputType keyboardType;
   final TextInputAction textInputAction;
   final ValueChanged<String>? onSubmitted;
+  final Iterable<String>? autofillHints;
 
   const CustomTextField({
     super.key,
@@ -174,6 +175,7 @@ class CustomTextField extends StatefulWidget {
     this.keyboardType = TextInputType.text,
     this.textInputAction = TextInputAction.next,
     this.onSubmitted,
+    this.autofillHints,
   });
 
   @override
@@ -223,6 +225,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
         keyboardType: widget.keyboardType,
         textInputAction: widget.textInputAction,
         onSubmitted: widget.onSubmitted,
+        autofillHints: widget.autofillHints,
         style: const TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w500,

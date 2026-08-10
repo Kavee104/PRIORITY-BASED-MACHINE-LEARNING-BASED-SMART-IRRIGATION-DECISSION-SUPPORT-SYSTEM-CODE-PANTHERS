@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
 import 'app_theme.dart';
+import 'auth_service.dart';
 
 class FieldCreationScreen extends StatefulWidget {
   final int farmerId;
@@ -35,28 +36,41 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse("$baseUrl/create-field"),
+        Uri.parse("$baseUrl/fields/${widget.farmerId}"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "farmer_id": widget.farmerId,
           "zone_no": int.tryParse(zoneText) ?? 1,
           "size": double.tryParse(size) ?? 1.0,
+          "crop_type": "General",
         }),
       ).timeout(const Duration(seconds: 4));
 
-      final data = jsonDecode(response.body);
-
-      if (!mounted) return;
-      if (response.statusCode == 201) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (!mounted) return;
         _showMessage("Field profile created successfully!", AppColors.emerald);
         Navigator.pop(context);
-      } else {
-        _showMessage(data['error'] ?? "Field registered locally!", AppColors.emerald);
-        Navigator.pop(context);
+        return;
       }
+
+      AuthService.instance.addFarmerField(
+        farmerId: widget.farmerId,
+        zoneNo: int.tryParse(zoneText) ?? 1,
+        size: double.tryParse(size) ?? 1.0,
+        cropType: "General",
+      );
+
+      if (!mounted) return;
+      _showMessage("Field profile created!", AppColors.emerald);
+      Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
-      _showMessage("Field registered successfully!", AppColors.emerald);
+      AuthService.instance.addFarmerField(
+        farmerId: widget.farmerId,
+        zoneNo: int.tryParse(zoneText) ?? 1,
+        size: double.tryParse(size) ?? 1.0,
+        cropType: "General",
+      );
+      _showMessage("Field registered locally!", AppColors.emerald);
       Navigator.pop(context);
     } finally {
       if (mounted) {
@@ -115,10 +129,10 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
                       color: AppColors.emerald.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Icon(Icons.grass_rounded, color: AppColors.emerald, size: 28),
+                    child: Icon(Icons.grass_rounded, color: AppColors.emerald, size: 28),
                   ),
                   const SizedBox(width: 14),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -137,7 +151,7 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
               ),
               const SizedBox(height: 28),
 
-              const Text(
+              Text(
                 "Zone Number",
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark),
               ),
@@ -145,14 +159,14 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
               TextField(
                 controller: zoneController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: "Enter Zone No (e.g. 1 - 28)",
                   prefixIcon: Icon(Icons.map_rounded, color: AppColors.emerald),
                 ),
               ),
               const SizedBox(height: 20),
 
-              const Text(
+              Text(
                 "Field Size (Acres)",
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark),
               ),
@@ -160,7 +174,7 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
               TextField(
                 controller: sizeController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: "e.g. 2.5",
                   prefixIcon: Icon(Icons.square_foot_rounded, color: AppColors.emerald),
                   suffixText: "Acres",

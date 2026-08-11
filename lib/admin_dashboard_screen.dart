@@ -7,6 +7,8 @@ import 'auth_service.dart';
 import 'main.dart';
 import 'user_management_screen.dart';
 import 'priority_schedule_screen.dart';
+import 'water_release_prediction_card.dart';
+
 
 class AdminDashboardScreen extends StatefulWidget {
   final String adminName;
@@ -469,7 +471,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           const SizedBox(height: 28),
                           _buildMetricsSection(),
                           const SizedBox(height: 32),
+                          const WaterReleasePredictionCard(),
+                          const SizedBox(height: 32),
                           _buildWaterRequestsSection(),
+
                           const SizedBox(height: 32),
                           _buildUsersSection(),
                           const SizedBox(height: 32),

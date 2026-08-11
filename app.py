@@ -1071,6 +1071,115 @@ def admin_audit_log():
   return jsonify({'status': 'success', 'log': audit_log}), 200
 
 
+# ---------------------------------------------------------------------------
+# ML Model & Realtime Water Release Prediction Endpoints
+# ---------------------------------------------------------------------------
+ML_MODEL_FILE = os.path.join(os.path.dirname(__file__), 'water_release_model.pkl')
+ML_FEATURES_FILE = os.path.join(os.path.dirname(__file__), 'model_features.json')
+
+water_release_model = None
+water_model_metadata = {}
+
+if os.path.exists(ML_MODEL_FILE):
+  try:
+    water_release_model = joblib.load(ML_MODEL_FILE)
+    print("Successfully loaded ML water release model.")
+  except Exception as e:
+    print("Error loading ML model:", e)
+
+if os.path.exists(ML_FEATURES_FILE):
+  try:
+    with open(ML_FEATURES_FILE, 'r', encoding='utf-8') as fh:
+      water_model_metadata = json.load(fh)
+  except Exception as e:
+    print("Error loading model metadata:", e)
+
+try:
+  import realtime_fetcher
+except ImportError:
+  realtime_fetcher = None
+
+
+@app.route('/api/model-info', methods=['GET'])
+def get_model_info():
+  """Returns model metrics, feature importances, and required inputs."""
+  return jsonify({
+    'status': 'success',
+    'model_loaded': water_release_model is not None,
+    'metadata': water_model_metadata
+  }), 200
+
+
+@app.route('/api/realtime-reservoir-data', methods=['GET'])
+def get_realtime_reservoir_data():
+  """Fetches real-time water level, capacity, date & rainfall from ArcGIS & Weather API."""
+  reservoir = request.args.get('reservoir', 'Mahakandarawa')
+  if not realtime_fetcher:
+    return jsonify({'status': 'error', 'message': 'realtime_fetcher module not available'}), 500
+
+  payload, meta = realtime_fetcher.get_realtime_feature_payload(reservoir)
+  return jsonify({
+    'status': 'success',
+    'metadata': meta,
+    'features': payload
+  }), 200
+
+
+@app.route('/api/predict-release', methods=['POST'])
+def predict_water_release():
+  """
+  Predicts water release amount.
+  Accepts JSON body with features, OR uses live fetched data if body/fields are omitted.
+  """
+  if water_release_model is None:
+    return jsonify({'status': 'error', 'message': 'ML model is not loaded. Run train_model.py first.'}), 500
+
+  try:
+    data = request.get_json(silent=True) or {}
+    reservoir = data.get('reservoir', 'Mahakandarawa')
+
+
+    # Get live baseline payload, then override with any custom inputs
+    if realtime_fetcher:
+      features_dict, meta = realtime_fetcher.get_realtime_feature_payload(reservoir, custom_overrides=data)
+    else:
+      features_dict = {
+        'Reservoir Water Level': float(data.get('water_level', 15.0)),
+        'Reservoir Capacity': float(data.get('capacity', 45157.0)),
+        'Rainfall (Nachchaduwa)': float(data.get('rainfall', 0.0)),
+        'prev_day_level': float(data.get('prev_day_level', 15.0)),
+        'prev_day_release': float(data.get('prev_day_release', 30.0)),
+        'rainfall_3day_sum': float(data.get('rainfall_3day_sum', 0.0)),
+        'rainfall_7day_sum': float(data.get('rainfall_7day_sum', 0.0)),
+        'level_change': float(data.get('level_change', 0.0))
+      }
+      meta = {'reservoir_name': reservoir, 'date': 'manual_input'}
+
+    feature_cols = water_model_metadata.get('feature_columns', [
+      'Reservoir Water Level', 'Reservoir Capacity', 'Rainfall (Nachchaduwa)',
+      'prev_day_level', 'prev_day_release', 'rainfall_3day_sum',
+      'rainfall_7day_sum', 'level_change'
+    ])
+
+    df_input = pd.DataFrame([features_dict])[feature_cols]
+    prediction = water_release_model.predict(df_input)[0]
+    prediction_val = max(0.0, float(round(prediction, 4)))
+
+    return jsonify({
+      'status': 'success',
+      'predicted_water_release': prediction_val,
+      'unit': 'Acft/Day',
+      'reservoir': meta.get('reservoir_name', reservoir),
+      'date': meta.get('date', 'N/A'),
+      'input_features': features_dict,
+      'metadata': meta
+    }), 200
+
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': str(e)}), 400
+
+
 if __name__ == '__main__':
   # Run development server on port 5000
   app.run(host='0.0.0.0', port=5000, debug=True)
+

@@ -45,5 +45,37 @@
     "role": "farmer",
     "email": "chiku123@gmail.com",
     "name": "Chi Kuu"
+  },
+  "dil@gmaiil.com": {
+    "password_hash": "scrypt:32768:8:1$InGYb56CAR6fiY9P$0dbaca9748d0b24e7e39095543799244690a156348e9b381a7a0371d3d78de523fb0a3570859b16e0c62e4791cef1df4e138c0983fe4fcc24f316609d4a6c259",
+    "role": "farmer"
+  },
+  "h": {
+    "id": 1,
+    "password_hash": "scrypt:32768:8:1$9ew0jhMgdwqjxkGf$bbd5fd0b0f9d65b479588d0161d3aba2aaf6adb39a07f8886f775089c0b52ab7a0eb4a3a651d57091de4a461752386a84ad8caba19f09e32941b4c1b22e37032",
+    "role": "farmer",
+    "email": "h@gmail.com",
+    "name": "hh hh"
+  },
+  "h@gmail.com": {
+    "id": 1,
+    "password_hash": "scrypt:32768:8:1$9ew0jhMgdwqjxkGf$bbd5fd0b0f9d65b479588d0161d3aba2aaf6adb39a07f8886f775089c0b52ab7a0eb4a3a651d57091de4a461752386a84ad8caba19f09e32941b4c1b22e37032",
+    "role": "farmer",
+    "email": "h@gmail.com",
+    "name": "hh hh"
+  },
+  "d": {
+    "id": 2,
+    "password_hash": "scrypt:32768:8:1$uswPRZLFjBRAc9JB$6ecb26ecc1a3dd78fccb75ad24e7f109773e9d7206da7eaeb16a92ffba5d74d38fa4182a8d6ff1fc9da961a1010645049ee4a9794202b8997f52ea5d51aed6ad",
+    "role": "farmer",
+    "email": "d@gmail.com",
+    "name": "dm m"
+  },
+  "d@gmail.com": {
+    "id": 2,
+    "password_hash": "scrypt:32768:8:1$uswPRZLFjBRAc9JB$6ecb26ecc1a3dd78fccb75ad24e7f109773e9d7206da7eaeb16a92ffba5d74d38fa4182a8d6ff1fc9da961a1010645049ee4a9794202b8997f52ea5d51aed6ad",
+    "role": "farmer",
+    "email": "d@gmail.com",
+    "name": "dm m"
   }
 }

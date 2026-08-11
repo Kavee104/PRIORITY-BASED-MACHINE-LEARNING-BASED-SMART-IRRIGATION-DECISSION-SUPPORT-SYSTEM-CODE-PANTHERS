@@ -105,5 +105,34 @@
       "Moisture": "78%",
       "Status": "Optimal"
     }
+  ],
+  "101": [
+    {
+      "FieldID": 101,
+      "FarmerID": 101,
+      "ZoneNo": 5,
+      "Size": 4.0,
+      "CropType": "General",
+      "Moisture": "65%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 102,
+      "FarmerID": 101,
+      "ZoneNo": 2,
+      "Size": 2.0,
+      "CropType": "General",
+      "Moisture": "57%",
+      "Status": "Needs Water"
+    },
+    {
+      "FieldID": 103,
+      "FarmerID": 101,
+      "ZoneNo": 2,
+      "Size": 2.0,
+      "CropType": "General",
+      "Moisture": "57%",
+      "Status": "Needs Water"
+    }
   ]
 }

@@ -19,4 +19,11 @@ class AppConfig {
 
   static String get predictIrrigationUrl =>
       '$apiBaseUrl/predict_irrigation';
+
+  static String get predictReleaseUrl =>
+      '$apiBaseUrl/api/predict-release';
+
+  static String get realtimeReservoirDataUrl =>
+      '$apiBaseUrl/api/realtime-reservoir-data';
 }
+

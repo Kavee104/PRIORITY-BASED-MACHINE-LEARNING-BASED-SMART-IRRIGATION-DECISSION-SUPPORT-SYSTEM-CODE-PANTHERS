@@ -1,0 +1,28 @@
+{
+  "target_column": "Previous Water Release",
+  "feature_columns": [
+    "Reservoir Water Level",
+    "Reservoir Capacity",
+    "Rainfall (Nachchaduwa)",
+    "prev_day_level",
+    "prev_day_release",
+    "rainfall_3day_sum",
+    "rainfall_7day_sum",
+    "level_change"
+  ],
+  "metrics": {
+    "r2_score": 0.7779,
+    "mae": 18.4705,
+    "rmse": 27.2907
+  },
+  "feature_importances": {
+    "Reservoir Water Level": 0.0244,
+    "Reservoir Capacity": 0.0249,
+    "Rainfall (Nachchaduwa)": 0.0057,
+    "prev_day_level": 0.0309,
+    "prev_day_release": 0.8511,
+    "rainfall_3day_sum": 0.0135,
+    "rainfall_7day_sum": 0.0187,
+    "level_change": 0.0307
+  }
+}

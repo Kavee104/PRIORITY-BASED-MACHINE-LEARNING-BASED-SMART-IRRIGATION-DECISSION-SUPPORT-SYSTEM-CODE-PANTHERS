@@ -1,0 +1,9 @@
+==================== EVALUATION RESULTS ====================
+Model: Random Forest Regressor (with lag features)
+Total Records: 844
+Training Dataset Size: 675 (80%)
+Testing Dataset Size: 169 (20%)
+Mean Absolute Error (MAE): 18.4705 (Release units - Acft/Day)
+Root Mean Squared Error (RMSE): 27.2907 (Release units - Acft/Day)
+Accuracy (R2 Score): 77.79%
+============================================================

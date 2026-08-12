@@ -48,7 +48,8 @@
   },
   "dil@gmaiil.com": {
     "password_hash": "scrypt:32768:8:1$InGYb56CAR6fiY9P$0dbaca9748d0b24e7e39095543799244690a156348e9b381a7a0371d3d78de523fb0a3570859b16e0c62e4791cef1df4e138c0983fe4fcc24f316609d4a6c259",
-    "role": "farmer"
+    "role": "farmer",
+    "id": 61657
   },
   "h": {
     "id": 1,
@@ -77,5 +78,103 @@
     "role": "farmer",
     "email": "d@gmail.com",
     "name": "dm m"
+  },
+  "farmer": {
+    "id": 3,
+    "password_hash": "scrypt:32768:8:1$hNIORtG4I5tHbc28$848bfee3acb6df60e6fca09e434cc7a8f5a73e784026e502f31798cc370588fa01cf050e52a6c8077ee65e60483189cd576a59c318f70d5584723bfe68dcc5b9",
+    "role": "farmer",
+    "email": "farmer@gmail.com",
+    "name": "Far Mer"
+  },
+  "farmer@gmail.com": {
+    "id": 3,
+    "password_hash": "scrypt:32768:8:1$hNIORtG4I5tHbc28$848bfee3acb6df60e6fca09e434cc7a8f5a73e784026e502f31798cc370588fa01cf050e52a6c8077ee65e60483189cd576a59c318f70d5584723bfe68dcc5b9",
+    "role": "farmer",
+    "email": "farmer@gmail.com",
+    "name": "Far Mer"
+  },
+  "iuri": {
+    "id": 1,
+    "password_hash": "scrypt:32768:8:1$TAik1xeZgWxill1S$6ec211087e231d7f76c1c5328f08d80899de6482037dc37e93d04f6e166c5b7f2abd44eacc760bc9e78006881b75365e84b818a327a7ad5df90367e225ded948",
+    "role": "farmer",
+    "email": "iuri@gmail.com",
+    "name": "iuri dinu"
+  },
+  "iuri@gmail.com": {
+    "id": 1,
+    "password_hash": "scrypt:32768:8:1$TAik1xeZgWxill1S$6ec211087e231d7f76c1c5328f08d80899de6482037dc37e93d04f6e166c5b7f2abd44eacc760bc9e78006881b75365e84b818a327a7ad5df90367e225ded948",
+    "role": "farmer",
+    "email": "iuri@gmail.com",
+    "name": "iuri dinu"
+  },
+  "kl": {
+    "id": 1,
+    "password_hash": "scrypt:32768:8:1$ZkjnJZN0WHC2kkaa$e44370f7b5e3725f974980aa7ea907ac2f7356c18b7b9d75c593c0fa82e3bae2f551aa9274b3cdc8c2660f1aa2e6aeaf38d711ed032e1768ff2cba59c0f59025",
+    "role": "farmer",
+    "email": "kl@gmail.com",
+    "name": "k l"
+  },
+  "kl@gmail.com": {
+    "id": 1,
+    "password_hash": "scrypt:32768:8:1$ZkjnJZN0WHC2kkaa$e44370f7b5e3725f974980aa7ea907ac2f7356c18b7b9d75c593c0fa82e3bae2f551aa9274b3cdc8c2660f1aa2e6aeaf38d711ed032e1768ff2cba59c0f59025",
+    "role": "farmer",
+    "email": "kl@gmail.com",
+    "name": "k l"
+  },
+  "jan": {
+    "id": 2,
+    "password_hash": "scrypt:32768:8:1$QNJNWygw2VP8m6Zf$748d05372b2f7be097df3d769789441717e8c7c4a857029a851671dcdbde9d3a5a8264e5d476bb0a152b2c4e788faf030de4c835842e3a9743afabc58c06a775",
+    "role": "farmer",
+    "email": "jan@gmail.com",
+    "name": "jan jan"
+  },
+  "jan@gmail.com": {
+    "id": 2,
+    "password_hash": "scrypt:32768:8:1$QNJNWygw2VP8m6Zf$748d05372b2f7be097df3d769789441717e8c7c4a857029a851671dcdbde9d3a5a8264e5d476bb0a152b2c4e788faf030de4c835842e3a9743afabc58c06a775",
+    "role": "farmer",
+    "email": "jan@gmail.com",
+    "name": "jan jan"
+  },
+  "kchathumini57": {
+    "id": 3,
+    "password_hash": "scrypt:32768:8:1$LOrpfavzOKMj00aM$c46936ee24052783ae48f423a20761d6e1b6b90e9c151f95dafe712b7d731a1df9703c81e1d4ba4a87e8bdd1843d76c785f4e96b5137aef813619cb3aa2f4ba2",
+    "role": "farmer",
+    "email": "kchathumini57@gmail.com",
+    "name": "kave sha"
+  },
+  "kchathumini57@gmail.com": {
+    "id": 3,
+    "password_hash": "scrypt:32768:8:1$LOrpfavzOKMj00aM$c46936ee24052783ae48f423a20761d6e1b6b90e9c151f95dafe712b7d731a1df9703c81e1d4ba4a87e8bdd1843d76c785f4e96b5137aef813619cb3aa2f4ba2",
+    "role": "farmer",
+    "email": "kchathumini57@gmail.com",
+    "name": "kave sha"
+  },
+  "dilmi": {
+    "id": 4,
+    "password_hash": "scrypt:32768:8:1$6L1gF45x3V4EOaky$238dbe820a2d3a8303b914384c8f526d53676a6ec253124c331dc27cbf9835f3da8a297d72c4c4697c55423672e9c6347c4fd45b330415edeca3941f57c0f4f8",
+    "role": "farmer",
+    "email": "dilmi@gmail.com",
+    "name": "dil mi"
+  },
+  "dilmi@gmail.com": {
+    "id": 4,
+    "password_hash": "scrypt:32768:8:1$6L1gF45x3V4EOaky$238dbe820a2d3a8303b914384c8f526d53676a6ec253124c331dc27cbf9835f3da8a297d72c4c4697c55423672e9c6347c4fd45b330415edeca3941f57c0f4f8",
+    "role": "farmer",
+    "email": "dilmi@gmail.com",
+    "name": "dil mi"
+  },
+  "tharipami2k20": {
+    "id": 5,
+    "password_hash": "scrypt:32768:8:1$jg97muUZgLhZJcJ1$51ce893079ea86f44dd5bf50d23737b5b83b6f7ad0fd4be270a424be8afab46b6baba13ca029b9932fe54effe92d38e84ed8fbd955d6f18658cd742f086d74e6",
+    "role": "farmer",
+    "email": "tharipami2k20@gmail.com",
+    "name": "Tharinda Pamindu"
+  },
+  "tharipami2k20@gmail.com": {
+    "id": 5,
+    "password_hash": "scrypt:32768:8:1$jg97muUZgLhZJcJ1$51ce893079ea86f44dd5bf50d23737b5b83b6f7ad0fd4be270a424be8afab46b6baba13ca029b9932fe54effe92d38e84ed8fbd955d6f18658cd742f086d74e6",
+    "role": "farmer",
+    "email": "tharipami2k20@gmail.com",
+    "name": "Tharinda Pamindu"
   }
 }

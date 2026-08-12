@@ -419,21 +419,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
               const SizedBox(width: 10),
             ],
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Admin Control Center",
-                  style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText, fontSize: 18),
-                ),
-                Text(
-                  "Real-time System Administration & Water Approval",
-                  style: TextStyle(color: AppColors.secondaryText, fontSize: 12),
-                ),
-              ],
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Admin Control Center",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText, fontSize: 16),
+                  ),
+                  Text(
+                    "Real-time System Administration & Water Approval",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.secondaryText, fontSize: 11),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
+
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppColors.secondaryText),

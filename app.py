@@ -214,11 +214,11 @@ def _find_user(identifier):
 
 
 def _send_reset_otp_email(recipient, otp):
-  smtp_host = os.environ.get('SMTP_HOST')
+  smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
   smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-  smtp_user = os.environ.get('SMTP_USER')
-  smtp_password = os.environ.get('SMTP_PASSWORD')
-  smtp_from = os.environ.get('SMTP_FROM', smtp_user or 'smart-irrigation@app.local')
+  smtp_user = os.environ.get('SMTP_USER', 'kchathumini57@gmail.com')
+  smtp_password = os.environ.get('SMTP_PASSWORD', 'qebbgxewnlqpvujg')
+  smtp_from = os.environ.get('SMTP_FROM', smtp_user)
 
   if not smtp_host or not smtp_user or not smtp_password:
     print(f'Password reset OTP for {recipient}: {otp}')
@@ -357,6 +357,114 @@ def get_weather_forecast():
   except Exception as e:
     print("Weather API Exception:", e)
     return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Real-time Arduino Uno Serial Telemetry
+# ---------------------------------------------------------------------------
+import threading
+import re
+
+latest_sensor_data = {
+  'moisture': 68,
+  'temperature': 30.0,
+  'raw_analog': 450,
+  'status': 'Searching for Arduino COM Port...',
+  'connected': False,
+  'com_port': None
+}
+
+def _arduino_serial_loop():
+  global latest_sensor_data
+  try:
+    import serial
+    import serial.tools.list_ports
+  except ImportError:
+    latest_sensor_data['status'] = 'pyserial package missing'
+    return
+
+  while True:
+    try:
+      ports = serial.tools.list_ports.comports()
+      if not ports:
+        latest_sensor_data['status'] = 'Arduino Disconnected (Plug in USB)'
+        latest_sensor_data['connected'] = False
+        time.sleep(2)
+        continue
+
+      target_port = None
+      for p in ports:
+        target_port = p.device
+        break
+
+      if not target_port:
+        time.sleep(2)
+        continue
+
+      latest_sensor_data['status'] = f'Connecting to {target_port}...'
+      latest_sensor_data['com_port'] = target_port
+
+      with serial.Serial(target_port, 9600, timeout=2) as ser:
+        latest_sensor_data['status'] = f'Arduino Connected ({target_port})'
+        latest_sensor_data['connected'] = True
+        time.sleep(1)
+
+        while True:
+          line = ser.readline().decode('utf-8', errors='ignore').strip()
+          if line:
+            raw_match = re.search(r'Raw_Analog:\s*(\d+)', line)
+            moist_match = re.search(r'Moisture_Percent:\s*(\d+)', line)
+            temp_match = re.search(r'Temperature_C:\s*([\d\.]+)', line)
+
+            if moist_match or temp_match or raw_match:
+              if raw_match:
+                latest_sensor_data['raw_analog'] = int(raw_match.group(1))
+              if moist_match:
+                latest_sensor_data['moisture'] = int(moist_match.group(1))
+              if temp_match:
+                latest_sensor_data['temperature'] = float(temp_match.group(1))
+
+              latest_sensor_data['connected'] = True
+              latest_sensor_data['status'] = f'Arduino Live ({target_port})'
+    except PermissionError:
+      latest_sensor_data['status'] = f'{target_port} Busy (Close Arduino Serial Monitor)'
+      latest_sensor_data['connected'] = False
+      time.sleep(2)
+    except Exception as e:
+      err_str = str(e)
+      if 'Access is denied' in err_str or 'PermissionError' in err_str:
+        latest_sensor_data['status'] = f'{target_port} Busy (Close Arduino Serial Monitor)'
+      else:
+        latest_sensor_data['status'] = 'Arduino Disconnected'
+      latest_sensor_data['connected'] = False
+      time.sleep(2)
+
+
+# Start background serial thread
+_serial_thread = threading.Thread(target=_arduino_serial_loop, daemon=True)
+_serial_thread.start()
+
+
+@app.route('/sensor-data', methods=['GET'])
+def get_sensor_data():
+  return jsonify(latest_sensor_data), 200
+
+
+@app.route('/sensor-data', methods=['POST'])
+def update_sensor_data():
+  try:
+    data = request.get_json(force=True)
+    if 'moisture' in data:
+      latest_sensor_data['moisture'] = int(data['moisture'])
+    if 'temperature' in data:
+      latest_sensor_data['temperature'] = float(data['temperature'])
+    if 'raw_analog' in data:
+      latest_sensor_data['raw_analog'] = int(data['raw_analog'])
+    latest_sensor_data['status'] = 'HTTP Override Active'
+    latest_sensor_data['connected'] = True
+    return jsonify({'status': 'success', 'sensor_data': latest_sensor_data}), 200
+  except Exception as e:
+    return jsonify({'status': 'error', 'message': str(e)}), 400
 
 
 # Simple in-memory reservoir status (level in percent)
@@ -960,11 +1068,16 @@ def admin_get_water_requests():
     except Exception as e:
       print("Error reading admin water requests from MySQL:", e)
 
-  req_map = {r['RequestID']: r for r in water_requests if 'RequestID' in r}
+  req_map = {}
   for r in db_reqs:
-    req_map[r['RequestID']] = r
+    if 'RequestID' in r:
+      req_map[r['RequestID']] = r
+  for r in reversed(water_requests):
+    if 'RequestID' in r:
+      req_map[r['RequestID']] = r
 
-  return jsonify({'status': 'success', 'requests': list(req_map.values())}), 200
+  sorted_reqs = sorted(list(req_map.values()), key=lambda x: x.get('RequestID', 0), reverse=True)
+  return jsonify({'status': 'success', 'requests': sorted_reqs}), 200
 
 
 @app.route('/admin/water-requests/<int:req_id>/approve', methods=['POST'])

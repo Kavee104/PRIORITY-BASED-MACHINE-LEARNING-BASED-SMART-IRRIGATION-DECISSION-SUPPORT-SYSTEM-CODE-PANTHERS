@@ -270,5 +270,27 @@
       "Moisture": "45%",
       "Status": "Needs Water"
     }
+  ],
+  "6": [
+    {
+      "FieldID": 9,
+      "FarmerID": 6,
+      "ZoneNo": 1,
+      "Size": 11.0,
+      "CropType": "General",
+      "Moisture": "69%",
+      "Status": "Needs Water"
+    }
+  ],
+  "7": [
+    {
+      "FieldID": 101,
+      "FarmerID": 7,
+      "ZoneNo": 3,
+      "Size": 6.0,
+      "CropType": "General",
+      "Moisture": "47%",
+      "Status": "Optimal"
+    }
   ]
 }

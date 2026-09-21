@@ -44,6 +44,8 @@ class WaterRequest {
   final String farmerName;
   String status; // "Pending", "Approved", "Rejected"
   final String requestTime;
+  final int soilMoisture;
+  final double soilTemperature;
 
   WaterRequest({
     required this.requestID,
@@ -53,6 +55,8 @@ class WaterRequest {
     required this.farmerName,
     required this.status,
     required this.requestTime,
+    this.soilMoisture = 28,
+    this.soilTemperature = 29.5,
   });
 
   Map<String, dynamic> toJson() => {
@@ -63,6 +67,8 @@ class WaterRequest {
         'farmer_name': farmerName,
         'Status': status,
         'RequestTime': requestTime,
+        'SoilMoisture': soilMoisture,
+        'SoilTemperature': soilTemperature,
       };
 }
 
@@ -162,9 +168,14 @@ class AuthService {
     required String zoneName,
     required String farmerName,
     int? requestId,
+    int? moisture,
+    double? temperature,
   }) {
     final now = DateTime.now();
     final timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} (Just now)";
+
+    final moistVal = moisture ?? ((fieldId * 17) % 35 + 18);
+    final tempVal = temperature ?? (28.0 + (fieldId % 5) * 0.7);
 
     final req = WaterRequest(
       requestID: requestId ?? _nextRequestId++,
@@ -174,13 +185,15 @@ class AuthService {
       farmerName: farmerName,
       status: 'Pending',
       requestTime: timeStr,
+      soilMoisture: moistVal,
+      soilTemperature: tempVal,
     );
 
     _waterRequests.insert(0, req);
     addAuditLog(
       action: 'WATER_REQUEST',
       user: farmerName,
-      details: 'Submitted water request #${req.requestID} for $zoneName',
+      details: 'Submitted water request #${req.requestID} for $zoneName (Sensors: Moisture $moistVal%, Temp ${tempVal.toStringAsFixed(1)}°C)',
     );
     return req;
   }
@@ -209,10 +222,99 @@ class AuthService {
           user: 'admin',
           details: 'Rejected water request #$requestId for ${r.zoneName}',
         );
-        return true;
       }
     }
     return false;
+  }
+
+  void clearWaterRequests() {
+    _waterRequests.clear();
+    addAuditLog(
+      action: 'REQUESTS_CLEARED',
+      user: 'admin',
+      details: 'Cleared all active farmer water requests',
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Dynamic Zone Priority Schedule Aggregated from Live Requests
+  // -------------------------------------------------------------------------
+  String _cleanZoneName(String raw) {
+    if (raw.contains('(')) {
+      final clean = raw.split('(')[0].trim();
+      if (clean.isNotEmpty) return clean;
+    }
+    return raw.trim();
+  }
+
+  List<Map<String, dynamic>> getZonePrioritySchedule() {
+    if (_waterRequests.isEmpty) {
+      return [];
+    }
+
+    final Map<String, List<Map<String, dynamic>>> zoneMap = {};
+    for (var r in _waterRequests) {
+      final zName = _cleanZoneName(r.zoneName);
+      if (!zoneMap.containsKey(zName)) {
+        zoneMap[zName] = [];
+      }
+      zoneMap[zName]!.add(r.toJson());
+    }
+
+    final List<Map<String, dynamic>> schedule = [];
+    zoneMap.forEach((zName, list) {
+      double totalMoist = 0;
+      double totalTemp = 0;
+      for (var item in list) {
+        final m = item['SoilMoisture'] ?? item['soil_moisture'] ?? 30.0;
+        final t = item['SoilTemperature'] ?? item['soil_temperature'] ?? 29.5;
+        totalMoist += (m is num) ? m.toDouble() : 30.0;
+        totalTemp += (t is num) ? t.toDouble() : 29.5;
+      }
+
+      final avgMoist = (totalMoist / list.length).roundToDouble();
+      final avgTemp = double.parse((totalTemp / list.length).toStringAsFixed(1));
+
+      double zoneWeight = 1.0;
+      final lowerName = zName.toLowerCase();
+      if (lowerName.contains('tail') || lowerName.contains('3')) {
+        zoneWeight = 1.5;
+      } else if (lowerName.contains('28')) {
+        zoneWeight = 1.4;
+      } else if (lowerName.contains('middle') || lowerName.contains('9')) {
+        zoneWeight = 1.2;
+      } else if (lowerName.contains('5')) {
+        zoneWeight = 1.1;
+      }
+
+      // Demand density boost: +1.5 points for each additional field requesting water in this zone
+      final double requestCountBonus = (list.length - 1) * 1.5;
+      final urgencyScore = double.parse((((100.0 - avgMoist) * 0.5) + (zoneWeight * 2.0) + requestCountBonus).toStringAsFixed(1));
+      final targetWaterMm = double.parse((((75.0 - avgMoist) * 0.8) + ((avgTemp - 25.0) * 0.5)).toStringAsFixed(1));
+      final int totalLiters = (targetWaterMm * list.length * 2.5 * 4046.86).round();
+
+      schedule.add({
+        'ZoneName': zName,
+        'TotalFields': list.length,
+        'TotalAreaAcres': double.parse((list.length * 2.5).toStringAsFixed(1)),
+        'AvgSoilMoisture': avgMoist,
+        'AvgSoilTemp': avgTemp,
+        'urgency_score': urgencyScore,
+        'target_water_req_mm': targetWaterMm < 0 ? 0.0 : targetWaterMm,
+        'PredictedVolume': totalLiters,
+        'RainfallForecast': 0.0,
+        'Date': 'Today',
+        'Explanation': '[Zone Consolidated] ${list.length} active field requests grouped into $zName. Zone Avg Moisture: ${avgMoist}%, Zone Avg Temp: ${avgTemp}°C. Urgency Score: $urgencyScore (Formula 1). Target Water Needed: ${targetWaterMm} mm (Formula 2).',
+      });
+    });
+
+    schedule.sort((a, b) => (b['urgency_score'] as double).compareTo(a['urgency_score'] as double));
+
+    for (int i = 0; i < schedule.length; i++) {
+      schedule[i]['Rank'] = i + 1;
+    }
+
+    return schedule;
   }
 
   // -------------------------------------------------------------------------

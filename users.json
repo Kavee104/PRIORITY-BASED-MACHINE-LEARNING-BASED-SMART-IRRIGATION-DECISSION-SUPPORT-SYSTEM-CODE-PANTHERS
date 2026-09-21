@@ -150,18 +150,18 @@
     "name": "kave sha"
   },
   "dilmi": {
-    "id": 4,
-    "password_hash": "scrypt:32768:8:1$6L1gF45x3V4EOaky$238dbe820a2d3a8303b914384c8f526d53676a6ec253124c331dc27cbf9835f3da8a297d72c4c4697c55423672e9c6347c4fd45b330415edeca3941f57c0f4f8",
+    "id": 7,
+    "password_hash": "scrypt:32768:8:1$3g70PjQj6HKhsdax$580bda3302ffa7a30a07d4dd28bd50009496a98a1807efc37c53fb09f971155174b49ebf0c03cf744c46cd947722d9864b2ecf41508dfe79e48d897ee7a0fb5f",
     "role": "farmer",
     "email": "dilmi@gmail.com",
-    "name": "dil mi"
+    "name": "dilmi wandana"
   },
   "dilmi@gmail.com": {
-    "id": 4,
-    "password_hash": "scrypt:32768:8:1$6L1gF45x3V4EOaky$238dbe820a2d3a8303b914384c8f526d53676a6ec253124c331dc27cbf9835f3da8a297d72c4c4697c55423672e9c6347c4fd45b330415edeca3941f57c0f4f8",
+    "id": 7,
+    "password_hash": "scrypt:32768:8:1$3g70PjQj6HKhsdax$580bda3302ffa7a30a07d4dd28bd50009496a98a1807efc37c53fb09f971155174b49ebf0c03cf744c46cd947722d9864b2ecf41508dfe79e48d897ee7a0fb5f",
     "role": "farmer",
     "email": "dilmi@gmail.com",
-    "name": "dil mi"
+    "name": "dilmi wandana"
   },
   "tharipami2k20": {
     "id": 5,
@@ -176,5 +176,33 @@
     "role": "farmer",
     "email": "tharipami2k20@gmail.com",
     "name": "Tharinda Pamindu"
+  },
+  "wa": {
+    "id": 6,
+    "password_hash": "scrypt:32768:8:1$mFeE7W5JfLQtgT5a$1d6abb4b3f5defba66fda28dfb8e2cce1bc7265b2790698bd608079198a0a5584458827a2c0476aeba40e6bb3c55ff5ab2c058b83cfd8fb4117d91d277378744",
+    "role": "farmer",
+    "email": "wa@gmail.com",
+    "name": "wa sa"
+  },
+  "wa@gmail.com": {
+    "id": 6,
+    "password_hash": "scrypt:32768:8:1$mFeE7W5JfLQtgT5a$1d6abb4b3f5defba66fda28dfb8e2cce1bc7265b2790698bd608079198a0a5584458827a2c0476aeba40e6bb3c55ff5ab2c058b83cfd8fb4117d91d277378744",
+    "role": "farmer",
+    "email": "wa@gmail.com",
+    "name": "wa sa"
+  },
+  "chathumallakshitha2002": {
+    "id": 7,
+    "password_hash": "scrypt:32768:8:1$RMD3vdsIiCkpGHJD$2da1fdc856a5a32cfd2cc47e809556d2ff71e01a16481d063f93c6e616fe591c59139f3e435aa5e4f7a0d930963bd84f1fae7de0f0a68479591dd3a6612f7d32",
+    "role": "farmer",
+    "email": "chathumallakshitha2002@gmail.com",
+    "name": "chathumal lakshitha"
+  },
+  "chathumallakshitha2002@gmail.com": {
+    "id": 7,
+    "password_hash": "scrypt:32768:8:1$RMD3vdsIiCkpGHJD$2da1fdc856a5a32cfd2cc47e809556d2ff71e01a16481d063f93c6e616fe591c59139f3e435aa5e4f7a0d930963bd84f1fae7de0f0a68479591dd3a6612f7d32",
+    "role": "farmer",
+    "email": "chathumallakshitha2002@gmail.com",
+    "name": "chathumal lakshitha"
   }
 }

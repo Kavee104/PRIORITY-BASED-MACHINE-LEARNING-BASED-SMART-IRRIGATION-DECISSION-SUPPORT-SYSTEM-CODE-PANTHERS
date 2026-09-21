@@ -156,10 +156,11 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
             "TotalAreaAcres": 5.0,
             "AvgSoilMoisture": 45.5,
             "AvgSoilTemp": 29.7,
-            "urgency_score": 34.3,
-            "target_water_req_mm": 26.0,
-            "PredictedVolume": 526000,
-            "RainfallForecast": 0.0,
+            "AvgDaysSinceLastIrrigation": 10.0,
+            "urgency_score": 92.1,
+            "target_water_req_liters": 894387,
+            "PredictedVolume": 894387,
+            "PreviousDayRainfall": 0.0,
             "Date": "Today",
             "Explanation": "Aggregated from incoming farmer requests for Zone 28."
           },
@@ -394,7 +395,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                                 const Icon(Icons.opacity_rounded, size: 14, color: AppColors.aquaBlue),
                                 const SizedBox(width: 4),
                                 Text(
-                                  "Zone Target (F2): ${item['target_water_req_mm'] ?? '42.5'} mm",
+                                  "Zone Target (F2): ${item['target_water_req_liters'] ?? item['PredictedVolume'] ?? 0} L",
                                   style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.aquaBlue),
                                 ),
                               ],
@@ -419,8 +420,21 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                           const Icon(Icons.umbrella_rounded, size: 16, color: AppColors.textLight),
                           const SizedBox(width: 6),
                           Text(
-                            "Rain forecast: ${item['RainfallForecast'] ?? 0} mm (${item['Date'] ?? 'Today'})",
+                            "Previous-day rainfall: ${item['PreviousDayRainfall'] ?? 0} mm",
                             style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.schedule_rounded, size: 16, color: AppColors.textLight),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              "Average days since irrigation: ${item['AvgDaysSinceLastIrrigation'] ?? 10}",
+                              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            ),
                           ),
                         ],
                       ),

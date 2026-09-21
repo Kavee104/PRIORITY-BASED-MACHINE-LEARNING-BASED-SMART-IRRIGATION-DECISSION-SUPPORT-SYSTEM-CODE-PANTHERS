@@ -47,3 +47,8 @@ app.*.map.json
 # ML Models
 *.pkl
 
+# Local configuration and runtime account data
+.env
+.env.*
+users.json
+

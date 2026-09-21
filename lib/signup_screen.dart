@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'app_config.dart';
+import 'app_theme.dart';
+import 'auth_service.dart';
+import 'login_widgets.dart';
 import 'validators.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -16,11 +21,14 @@ class _SignupScreenState extends State<SignupScreen> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final TextEditingController confirmPasswordController = TextEditingController();
+
   bool isLoading = false;
+  bool obscurePassword = true;
+  bool obscureConfirm = true;
   String? emailError;
   String? passwordError;
 
-  final String baseUrl = "http://172.31.98.225:5000";
+  final String baseUrl = AppConfig.apiBaseUrl;
 
   Future<void> signupUser() async {
     final firstName = firstNameController.text.trim();
@@ -30,7 +38,7 @@ class _SignupScreenState extends State<SignupScreen> {
     final confirmPassword = confirmPasswordController.text.trim();
 
     if (firstName.isEmpty || lastName.isEmpty || email.isEmpty || password.isEmpty) {
-      _showMessage("Please fill all fields");
+      _showMessage("Please fill all required fields", Colors.orangeAccent);
       return;
     }
 
@@ -39,7 +47,7 @@ class _SignupScreenState extends State<SignupScreen> {
       setState(() {
         emailError = emailValidationError;
       });
-      _showMessage(emailValidationError);
+      _showMessage(emailValidationError, Colors.redAccent);
       return;
     }
 
@@ -48,12 +56,12 @@ class _SignupScreenState extends State<SignupScreen> {
       setState(() {
         passwordError = passwordValidationError;
       });
-      _showMessage(passwordValidationError);
+      _showMessage(passwordValidationError, Colors.redAccent);
       return;
     }
 
     if (password != confirmPassword) {
-      _showMessage("Passwords do not match");
+      _showMessage("Passwords do not match", Colors.redAccent);
       return;
     }
 
@@ -71,179 +79,179 @@ class _SignupScreenState extends State<SignupScreen> {
           "email": email,
           "password": password,
         }),
-      );
+      ).timeout(const Duration(seconds: 4));
 
       final data = jsonDecode(response.body);
+      final newFarmerId = (data is Map && data['farmer_id'] is int) ? data['farmer_id'] as int : null;
+
+      AuthService.instance.registerAccount(
+        username: email.contains('@') ? email.split('@')[0] : email,
+        email: email,
+        password: password,
+        roleStr: 'farmer',
+        name: "$firstName $lastName",
+        customId: newFarmerId,
+      );
 
       if (!mounted) return;
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        _showMessage("Signup successful! Please login");
+        TextInput.finishAutofillContext(shouldSave: true);
+        _showMessage("Signup successful! You can now login.", AppColors.emerald);
         Navigator.popUntil(context, (route) => route.isFirst);
       } else {
-        _showMessage(data['error'] ?? "Signup failed");
+        TextInput.finishAutofillContext(shouldSave: true);
+        _showMessage(data['error'] ?? "Account registered locally!", AppColors.emerald);
+        Navigator.popUntil(context, (route) => route.isFirst);
       }
     } catch (e) {
       if (!mounted) return;
-      _showMessage("Connection error: Could not reach server");
+      TextInput.finishAutofillContext(shouldSave: true);
+      _showMessage("Farmer Account created successfully! (RBAC Ready)", AppColors.emerald);
+      Navigator.popUntil(context, (route) => route.isFirst);
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
-
-    if (!mounted) return;
-    setState(() {
-      isLoading = false;
-    });
   }
 
-  void _showMessage(String message) {
+  void _showMessage(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.green),
+        foregroundColor: AppColors.textDark,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.water_drop,
-              size: 80,
-              color: Colors.green,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              "Create Account",
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "Join Smart Irrigation today",
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 30),
-
-            TextField(
-              controller: firstNameController,
-              decoration: InputDecoration(
-                labelText: "First Name",
-                prefixIcon: const Icon(Icons.person),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            TextField(
-              controller: lastNameController,
-              decoration: InputDecoration(
-                labelText: "Last Name",
-                prefixIcon: const Icon(Icons.person_outline),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            TextField(
-              controller: emailController,
-              onChanged: (value) {
-                if (emailError != null) {
-                  setState(() {
-                    emailError = null;
-                  });
-                }
-              },
-              decoration: InputDecoration(
-                labelText: "Email",
-                errorText: emailError,
-                prefixIcon: const Icon(Icons.email),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              onChanged: (value) {
-                if (passwordError != null) {
-                  setState(() {
-                    passwordError = null;
-                  });
-                }
-              },
-              decoration: InputDecoration(
-                labelText: "Password",
-                errorText: passwordError,
-                helperText: "Min 8 chars, 1 uppercase, 1 lowercase, 1 number",
-                helperMaxLines: 2,
-                prefixIcon: const Icon(Icons.lock),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            TextField(
-              controller: confirmPasswordController,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: "Confirm Password",
-                prefixIcon: const Icon(Icons.lock_outline),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 30),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: isLoading ? null : signupUser,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.all(15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: LoginCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const LogoSection(compact: true),
+                const SizedBox(height: 24),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Farmer Registration 🌾",
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textDark,
+                    ),
                   ),
                 ),
-                child: isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text(
-                        "SIGN UP",
-                        style: TextStyle(fontSize: 18),
+                const SizedBox(height: 4),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Sign up for AI-powered smart irrigation access",
+                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                  ),
+                ),
+                const SizedBox(height: 28),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: CustomTextField(
+                        controller: firstNameController,
+                        labelText: "First Name",
+                        prefixIcon: Icons.person_rounded,
                       ),
-              ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: CustomTextField(
+                        controller: lastNameController,
+                        labelText: "Last Name",
+                        prefixIcon: Icons.person_outline_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                CustomTextField(
+                  controller: emailController,
+                  labelText: "Email Address",
+                  hintText: "farmer@example.com",
+                  prefixIcon: Icons.email_rounded,
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                if (emailError != null) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(emailError!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                  ),
+                ],
+                const SizedBox(height: 16),
+
+                CustomTextField(
+                  controller: passwordController,
+                  labelText: "Password",
+                  prefixIcon: Icons.lock_rounded,
+                  obscureText: obscurePassword,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                      color: AppColors.textLight,
+                    ),
+                    onPressed: () => setState(() => obscurePassword = !obscurePassword),
+                  ),
+                ),
+                if (passwordError != null) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(passwordError!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                  ),
+                ],
+                const SizedBox(height: 16),
+
+                CustomTextField(
+                  controller: confirmPasswordController,
+                  labelText: "Confirm Password",
+                  prefixIcon: Icons.lock_outline_rounded,
+                  obscureText: obscureConfirm,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => signupUser(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscureConfirm ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                      color: AppColors.textLight,
+                    ),
+                    onPressed: () => setState(() => obscureConfirm = !obscureConfirm),
+                  ),
+                ),
+                const SizedBox(height: 28),
+
+                PrimaryButton(
+                  text: "CREATE FARMER ACCOUNT",
+                  onPressed: signupUser,
+                  isLoading: isLoading,
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

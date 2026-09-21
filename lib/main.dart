@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'role_selection_screen.dart';
+import 'package:flutter/services.dart';
+import 'app_config.dart';
+import 'app_theme.dart';
+import 'login_widgets.dart';
+import 'signup_screen.dart';
 import 'dashboard_screen.dart';
+import 'admin_dashboard_screen.dart';
+import 'forgot_password_screen.dart';
+import 'auth_service.dart';
 
 void main() {
   runApp(const SmartIrrigationApp());
@@ -16,9 +21,7 @@ class SmartIrrigationApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Smart Irrigation',
-      theme: ThemeData(
-        primarySwatch: Colors.green,
-      ),
+      theme: AppTheme.lightTheme,
       home: const LoginScreen(),
     );
   }
@@ -31,12 +34,50 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   bool isLoading = false;
+  bool obscurePassword = true;
 
-  final String baseUrl = "http://172.31.98.225:5000";
+  late AnimationController _animController;
+  late Animation<double> _fadeAnim;
+  late Animation<Offset> _slideAnim;
+
+  final String baseUrl = AppConfig.apiBaseUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+
+    _fadeAnim = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOut,
+    );
+
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.08),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _animController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
 
   Future<void> loginUser() async {
     final email = emailController.text.trim();
@@ -51,144 +92,446 @@ class _LoginScreenState extends State<LoginScreen> {
       isLoading = true;
     });
 
-    try {
-      final response = await http.post(
-        Uri.parse("$baseUrl/login"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "email": email,
-          "password": password,
-        }),
-      );
-
-      final data = jsonDecode(response.body);
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-       Navigator.pushReplacement(
-  context,
-  MaterialPageRoute(
-    builder: (context) => DashboardScreen(
-      farmerName: data['name'],
-      farmerId: data['farmer_id'],
-    ),
-  ),
-);
-      } else {
-        _showMessage(data['error'] ?? "Login failed");
-      }
-    } catch (e) {
-      if (!mounted) return;
-      _showMessage("Connection error: Could not reach server");
-    }
+    final authRes = await AuthService.instance.login(
+      identifier: email,
+      password: password,
+      targetRole: UserRole.farmer,
+    );
 
     if (!mounted) return;
-    setState(() {
-      isLoading = false;
-    });
+
+    if (authRes.success && authRes.user != null) {
+      TextInput.finishAutofillContext(shouldSave: true);
+      final user = authRes.user!;
+      if (user.role == UserRole.admin) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AdminDashboardScreen(adminName: user.name),
+          ),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DashboardScreen(
+              farmerName: user.name,
+              farmerEmail: user.email,
+              farmerId: user.id,
+            ),
+          ),
+        );
+      }
+    } else {
+      _showMessage(authRes.message);
+    }
+
+    if (mounted) {
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.info_outline_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: AppColors.textDark,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final isDesktop = screenSize.width >= 900;
+
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.water_drop,
-              size: 100,
-              color: Colors.green,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              "Smart Irrigation",
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              "AI Based Water Management System",
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 40),
-            TextField(
-              controller: emailController,
-              decoration: InputDecoration(
-                labelText: "Email",
-                prefixIcon: const Icon(Icons.email),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: "Password",
-                prefixIcon: const Icon(Icons.lock),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: isLoading ? null : loginUser,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.all(15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: isDesktop
+            ? Row(
+                children: [
+                  Expanded(
+                    flex: 45,
+                    child: _buildHeroPanel(context),
                   ),
-                ),
-                child: isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text(
-                        "LOGIN",
-                        style: TextStyle(
-                          fontSize: 18,
+                  Expanded(
+                    flex: 55,
+                    child: Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+                        child: FadeTransition(
+                          opacity: _fadeAnim,
+                          child: SlideTransition(
+                            position: _slideAnim,
+                            child: _buildLoginForm(context),
+                          ),
                         ),
                       ),
+                    ),
+                  ),
+                ],
+              )
+            : Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20.0),
+                  child: FadeTransition(
+                    opacity: _fadeAnim,
+                    child: SlideTransition(
+                      position: _slideAnim,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(height: 12),
+                          _buildLoginForm(context),
+                          const SizedBox(height: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildHeroPanel(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: AppColors.heroGradient,
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.darkForest.withValues(alpha: 0.3),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -60,
+            right: -60,
+            child: Container(
+              width: 260,
+              height: 260,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.05),
               ),
             ),
-            const SizedBox(height: 20),
-            TextButton(
+          ),
+          Positioned(
+            bottom: -80,
+            left: -80,
+            child: Container(
+              width: 320,
+              height: 320,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.aquaBlue.withValues(alpha: 0.08),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(48.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.freshGreen,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        "SMART AGTECH • AI POWERED",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+                RichText(
+                  text: const TextSpan(
+                    style: TextStyle(
+                      fontSize: 40,
+                      fontWeight: FontWeight.bold,
+                      height: 1.15,
+                      fontFamily: 'Roboto',
+                      color: Colors.white,
+                    ),
+                    children: [
+                      TextSpan(text: "Grow Smarter.\n"),
+                      TextSpan(
+                        text: "Save Every Drop.",
+                        style: TextStyle(
+                          color: AppColors.freshGreen,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  "AI-powered irrigation that helps you optimize water usage, improve crop health, and make smarter farming decisions.",
+                  style: TextStyle(
+                    fontSize: 15,
+                    height: 1.5,
+                    color: Colors.white.withValues(alpha: 0.85),
+                  ),
+                ),
+                const SizedBox(height: 36),
+                const FeatureBadge(
+                  icon: Icons.bolt_rounded,
+                  title: "AI-Powered Decisions",
+                  description: "Predictive irrigation schedules based on soil & weather",
+                  iconColor: AppColors.freshGreen,
+                ),
+                const SizedBox(height: 12),
+                const FeatureBadge(
+                  icon: Icons.water_drop_rounded,
+                  title: "Smart Water Optimization",
+                  description: "Save up to 40% reservoir water with precise allocation",
+                  iconColor: AppColors.skyBlue,
+                ),
+                const SizedBox(height: 12),
+                const FeatureBadge(
+                  icon: Icons.analytics_rounded,
+                  title: "Real-Time Monitoring",
+                  description: "Live moisture sensors & reservoir telemetry",
+                  iconColor: AppColors.freshGreen,
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.sensors_rounded,
+                        color: AppColors.freshGreen,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      const Text(
+                        "IoT Telemetry Active",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: AppColors.freshGreen.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          "CONNECTED",
+                          style: TextStyle(
+                            color: AppColors.freshGreen,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoginForm(BuildContext context) {
+    return LoginCard(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Center(
+            child: LogoSection(compact: true),
+          ),
+          const SizedBox(height: 28),
+          const Text(
+            "Welcome 👋",
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textDark,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "Sign in to continue managing your irrigation system.",
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 28),
+          CustomTextField(
+            controller: emailController,
+            labelText: "Email or Username",
+            hintText: "Enter your email or username",
+            prefixIcon: Icons.person_outline_rounded,
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+          ),
+          const SizedBox(height: 18),
+          CustomTextField(
+            controller: passwordController,
+            labelText: "Password",
+            hintText: "Enter your password",
+            prefixIcon: Icons.lock_outline_rounded,
+            obscureText: obscurePassword,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => loginUser(),
+            suffixIcon: IconButton(
+              icon: Icon(
+                obscurePassword
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                color: AppColors.textSecondary,
+                size: 20,
+              ),
+              onPressed: () {
+                setState(() {
+                  obscurePassword = !obscurePassword;
+                });
+              },
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const RoleSelectionScreen()),
+                  MaterialPageRoute(
+                    builder: (context) => const ForgotPasswordScreen(),
+                  ),
                 );
               },
-              child: const Text("Don't have an account? Sign up"),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.emerald,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              ),
+              child: const Text(
+                "Forgot Password?",
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            text: "Sign In",
+            isLoading: isLoading,
+            onPressed: isLoading ? null : loginUser,
+            icon: Icons.arrow_forward_rounded,
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  "Smart Water Management",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                "Don't have an account?",
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SignupScreen(),
+                    ),
+                  );
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.emerald,
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                ),
+                child: const Text(
+                  "Create an account",
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+        ],
       ),
     );
   }

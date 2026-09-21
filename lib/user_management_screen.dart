@@ -124,18 +124,37 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
       if (!mounted) return;
 
+      List<Map<String, dynamic>> combined = [...localAccounts];
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final fetched = List<Map<String, dynamic>>.from(data['users'] ?? []);
-        setState(() {
-          _users = [...localAccounts, ...fetched];
-        });
-      } else {
-        setState(() => _users = localAccounts);
+        combined.addAll(fetched);
       }
+
+      // Filter out admin users and deduplicate by username
+      final Map<String, Map<String, dynamic>> farmerMap = {};
+      for (final u in combined) {
+        final uname = (u['username'] ?? '').toString().trim();
+        final role = (u['role'] ?? 'farmer').toString().toLowerCase();
+        if (uname.isNotEmpty && role != 'admin') {
+          farmerMap[uname.toLowerCase()] = u;
+        }
+      }
+
+      setState(() {
+        _users = farmerMap.values.toList();
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _users = localAccounts);
+      final Map<String, Map<String, dynamic>> farmerMap = {};
+      for (final u in localAccounts) {
+        final uname = (u['username'] ?? '').toString().trim();
+        final role = (u['role'] ?? 'farmer').toString().toLowerCase();
+        if (uname.isNotEmpty && role != 'admin') {
+          farmerMap[uname.toLowerCase()] = u;
+        }
+      }
+      setState(() => _users = farmerMap.values.toList());
     } finally {
       if (mounted) setState(() => _isLoadingUsers = false);
     }
@@ -436,7 +455,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Registered Users (${_users.length})',
+                'Registered Farmers (${_users.length})',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
               ),
               IconButton(
@@ -479,7 +498,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                               Icon(Icons.people_outline, size: 60, color: Colors.grey.shade400),
                               const SizedBox(height: 12),
                               Text(
-                                'No users found.\nTap refresh to load.',
+                                'No registered farmers found.\nTap refresh to load.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(color: Colors.grey.shade600),
                               ),

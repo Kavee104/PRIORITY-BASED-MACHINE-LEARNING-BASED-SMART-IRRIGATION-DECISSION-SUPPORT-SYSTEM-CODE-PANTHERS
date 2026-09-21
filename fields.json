@@ -133,6 +133,164 @@
       "CropType": "General",
       "Moisture": "57%",
       "Status": "Needs Water"
+    },
+    {
+      "FieldID": 104,
+      "FarmerID": 101,
+      "ZoneNo": 11,
+      "Size": 2.0,
+      "CropType": "General",
+      "Moisture": "46%",
+      "Status": "Optimal"
+    }
+  ],
+  "1": [
+    {
+      "FieldID": 2,
+      "FarmerID": 1,
+      "ZoneNo": 1,
+      "Size": 2.5,
+      "CropType": "General",
+      "Moisture": "77%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 3,
+      "FarmerID": 1,
+      "ZoneNo": 3,
+      "Size": 7.5,
+      "CropType": "General",
+      "Moisture": "34%",
+      "Status": "Needs Water"
+    },
+    {
+      "FieldID": 4,
+      "FarmerID": 1,
+      "ZoneNo": 6,
+      "Size": 5.5,
+      "CropType": "General",
+      "Moisture": "48%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 5,
+      "FarmerID": 1,
+      "ZoneNo": 9,
+      "Size": 1.5,
+      "CropType": "General",
+      "Moisture": "58%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 6,
+      "FarmerID": 1,
+      "ZoneNo": 4,
+      "Size": 7.4,
+      "CropType": "General",
+      "Moisture": "60%",
+      "Status": "Needs Water"
+    },
+    {
+      "FieldID": 1,
+      "FarmerID": 1,
+      "ZoneNo": 8,
+      "Size": 6.0,
+      "CropType": "General",
+      "Moisture": "78%",
+      "Status": "Optimal"
+    }
+  ],
+  "2": [
+    {
+      "FieldID": 2,
+      "FarmerID": 2,
+      "ZoneNo": 6,
+      "Size": 8.0,
+      "CropType": "General",
+      "Moisture": "56%",
+      "Status": "Optimal"
+    }
+  ],
+  "3": [
+    {
+      "FieldID": 3,
+      "FarmerID": 3,
+      "ZoneNo": 6,
+      "Size": 9.0,
+      "CropType": "General",
+      "Moisture": "51%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 5,
+      "FarmerID": 3,
+      "ZoneNo": 5,
+      "Size": 9.0,
+      "CropType": "General",
+      "Moisture": "69%",
+      "Status": "Optimal"
+    },
+    {
+      "FieldID": 6,
+      "FarmerID": 3,
+      "ZoneNo": 7,
+      "Size": 9.0,
+      "CropType": "General",
+      "Moisture": "77%",
+      "Status": "Needs Water"
+    },
+    {
+      "FieldID": 7,
+      "FarmerID": 3,
+      "ZoneNo": 6,
+      "Size": 8.0,
+      "CropType": "General",
+      "Moisture": "77%",
+      "Status": "Optimal"
+    }
+  ],
+  "4": [
+    {
+      "FieldID": 4,
+      "FarmerID": 4,
+      "ZoneNo": 6,
+      "Size": 8.0,
+      "CropType": "General",
+      "Moisture": "69%",
+      "Status": "Needs Water"
+    }
+  ],
+  "5": [
+    {
+      "FieldID": 8,
+      "FarmerID": 5,
+      "ZoneNo": 2,
+      "Size": 2.5,
+      "CropType": "General",
+      "Moisture": "45%",
+      "Status": "Needs Water"
+    }
+  ],
+  "6": [
+    {
+      "FieldID": 9,
+      "FarmerID": 6,
+      "ZoneNo": 1,
+      "Size": 11.0,
+      "CropType": "General",
+      "Moisture": "69%",
+      "Status": "Needs Water"
+    }
+  ],
+  "7": [
+    {
+      "FieldID": 101,
+      "FarmerID": 7,
+      "ZoneNo": 3,
+      "Size": 6.0,
+      "CropType": "General",
+      "Moisture": "47%",
+      "Status": "Optimal"
     }
   ]
 }

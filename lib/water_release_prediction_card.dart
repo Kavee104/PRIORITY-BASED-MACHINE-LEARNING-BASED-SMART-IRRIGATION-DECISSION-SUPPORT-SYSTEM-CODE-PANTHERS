@@ -51,6 +51,20 @@ class _WaterReleasePredictionCardState
     final dateStr = _predictionResult?['date'] ?? 'Live Today';
     final unitStr = _predictionResult?['unit'] ?? 'Acft/Day';
 
+    final rawVal = _predictionResult?['predicted_water_release'];
+    final double? releaseNum = rawVal is num ? rawVal.toDouble() : null;
+
+    String releaseStatus = _predictionResult?['release_status'] ?? '';
+    if (releaseStatus.isEmpty && releaseNum != null) {
+      if (releaseNum < 80.0) {
+        releaseStatus = 'Low';
+      } else if (releaseNum <= 150.0) {
+        releaseStatus = 'Medium';
+      } else {
+        releaseStatus = 'High';
+      }
+    }
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 12.0),
       decoration: BoxDecoration(
@@ -256,6 +270,10 @@ class _WaterReleasePredictionCardState
                       ),
                     ],
                   ),
+                  if (releaseStatus.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _buildStatusBadge(releaseStatus),
+                  ],
                 ],
               ),
             ),
@@ -336,6 +354,56 @@ class _WaterReleasePredictionCardState
             style: const TextStyle(
               fontSize: 10,
               color: AppColors.secondaryText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(String status) {
+    Color bg;
+    Color fg;
+    IconData icon;
+
+    switch (status.toUpperCase()) {
+      case 'HIGH':
+        bg = const Color(0xFFFFEBEE);
+        fg = const Color(0xFFC62828);
+        icon = Icons.warning_amber_rounded;
+        break;
+      case 'MEDIUM':
+        bg = const Color(0xFFFFF3E0);
+        fg = const Color(0xFFE65100);
+        icon = Icons.info_outline;
+        break;
+      case 'LOW':
+        bg = const Color(0xFFE8F5E9);
+        fg = const Color(0xFF2E7D32);
+        icon = Icons.check_circle_outline;
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: fg.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 5),
+          Text(
+            '$status Release Demand',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: fg,
             ),
           ),
         ],

@@ -496,13 +496,14 @@ class _LoginScreenState extends State<LoginScreen>
             ],
           ),
           const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text(
                 "Don't have an account?",
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   color: AppColors.textSecondary,
                 ),
               ),
@@ -517,18 +518,19 @@ class _LoginScreenState extends State<LoginScreen>
                 },
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.emerald,
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                 ),
                 child: const Text(
                   "Create an account",
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
             ],
           ),
+
         ],
       ),
     );

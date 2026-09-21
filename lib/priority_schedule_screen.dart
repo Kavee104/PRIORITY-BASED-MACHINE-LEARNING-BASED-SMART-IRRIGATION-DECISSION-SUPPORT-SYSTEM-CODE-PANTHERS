@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'app_config.dart';
 import 'app_theme.dart';
 import 'weather_service.dart';
+import 'auth_service.dart';
 
 class PriorityScheduleScreen extends StatefulWidget {
   const PriorityScheduleScreen({super.key});
@@ -19,6 +20,11 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
   String? errorMessage;
   List<dynamic> schedule = [];
   bool _isWeatherLoading = false;
+
+  String releaseStatus = 'Low';
+  String allocationPolicy = 'PRIORITY_BASED';
+  String policyDescription =
+      'Low Water Supply (<80 Acft/Day): 🔴 Priority-Based Scarcity Allocation by Zone Urgency Score (Formula 1 & 2 Applied).';
 
   @override
   void initState() {
@@ -97,6 +103,20 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
       errorMessage = null;
     });
 
+    // Always prefer live incoming farmer requests from AuthService if present
+    final liveZoneSchedule = AuthService.instance.getZonePrioritySchedule();
+    if (liveZoneSchedule.isNotEmpty) {
+      setState(() {
+        schedule = liveZoneSchedule;
+        releaseStatus = 'Low';
+        allocationPolicy = 'PRIORITY_BASED';
+        policyDescription =
+            'Low Water Supply (<80 Acft/Day): 🔴 Priority-Based Scarcity Allocation by Zone Urgency Score (Formula 1 & 2 Applied).';
+        isLoading = false;
+      });
+      return;
+    }
+
     try {
       final response = await http
           .get(Uri.parse("$baseUrl/priority-schedule"))
@@ -108,6 +128,9 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
         final data = jsonDecode(response.body);
         setState(() {
           schedule = data['schedule'] ?? [];
+          releaseStatus = data['release_status'] ?? 'Low';
+          allocationPolicy = data['allocation_policy'] ?? 'PRIORITY_BASED';
+          policyDescription = data['policy_description'] ?? 'Low Water Supply Policy Active.';
           isLoading = false;
         });
       } else {
@@ -120,48 +143,28 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
   }
 
   void _loadMockSchedule() {
+    final liveZoneSchedule = AuthService.instance.getZonePrioritySchedule();
     setState(() {
-      schedule = [
-        {
-          "Rank": 1,
-          "F_Name": "Kamal",
-          "L_Name": "Perera",
-          "ZoneName": "Zone 1 (Paddy)",
-          "FieldID": 12,
-          "Size": 4.5,
-          "PredictedVolume": 1250,
-          "RainfallForecast": 1.2,
-          "WaterLevel": "85.0%",
-          "Date": "Today",
-          "Explanation": "High soil moisture depletion rate detected. ML model recommends immediate top priority water release."
-        },
-        {
-          "Rank": 2,
-          "F_Name": "Nimal",
-          "L_Name": "Fernando",
-          "ZoneName": "Zone 2 (Vegetables)",
-          "FieldID": 5,
-          "Size": 2.2,
-          "PredictedVolume": 600,
-          "RainfallForecast": 0.5,
-          "WaterLevel": "85.0%",
-          "Date": "Today",
-          "Explanation": "Medium priority. Moderate evapotranspiration index."
-        },
-        {
-          "Rank": 3,
-          "F_Name": "Saman",
-          "L_Name": "Silva",
-          "ZoneName": "Zone 3 (Maize)",
-          "FieldID": 8,
-          "Size": 3.0,
-          "PredictedVolume": 850,
-          "RainfallForecast": 8.5,
-          "WaterLevel": "85.0%",
-          "Date": "Tomorrow",
-          "Explanation": "Low priority. High rainfall expected in next 24 hours."
-        },
-      ];
+      if (liveZoneSchedule.isNotEmpty) {
+        schedule = liveZoneSchedule;
+      } else {
+        schedule = [
+          {
+            "Rank": 1,
+            "ZoneName": "Zone 28",
+            "TotalFields": 2,
+            "TotalAreaAcres": 5.0,
+            "AvgSoilMoisture": 45.5,
+            "AvgSoilTemp": 29.7,
+            "urgency_score": 34.3,
+            "target_water_req_mm": 26.0,
+            "PredictedVolume": 526000,
+            "RainfallForecast": 0.0,
+            "Date": "Today",
+            "Explanation": "Aggregated from incoming farmer requests for Zone 28."
+          },
+        ];
+      }
       isLoading = false;
     });
   }
@@ -200,6 +203,44 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
     );
   }
 
+  Widget _buildPolicyHeaderCard() {
+    Color policyColor = Colors.red.shade700;
+    if (releaseStatus == 'High') policyColor = Colors.green.shade700;
+    if (releaseStatus == 'Medium') policyColor = Colors.orange.shade800;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: policyColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: policyColor.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.alt_route_rounded, color: policyColor, size: 28),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Adaptive Policy Mode: $releaseStatus Water Release",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: policyColor),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  policyDescription,
+                  style: const TextStyle(fontSize: 12, color: AppColors.textDark),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBody() {
     if (isLoading) {
       return const Center(child: CircularProgressIndicator(color: AppColors.emerald));
@@ -219,10 +260,14 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
       onRefresh: fetchSchedule,
       child: ListView.builder(
         padding: const EdgeInsets.all(20),
-        itemCount: schedule.length,
+        itemCount: schedule.length + 1,
         itemBuilder: (context, index) {
-          final item = schedule[index];
-          final rank = (item['Rank'] ?? (index + 1)) as int;
+          if (index == 0) {
+            return _buildPolicyHeaderCard();
+          }
+
+          final item = schedule[index - 1];
+          final rank = (item['Rank'] ?? index) as int;
           final rColor = _rankColor(rank);
 
           return Container(
@@ -266,22 +311,105 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "${item['F_Name'] ?? ''} ${item['L_Name'] ?? ''}",
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textDark),
+                        "${item['ZoneName'] ?? 'Irrigation Zone'}",
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: AppColors.textDark),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        "${item['ZoneName'] ?? ''} • Field #${item['FieldID'] ?? ''} • ${item['Size'] ?? ''} acres",
+                        "Total Area: ${item['TotalAreaAcres'] ?? item['Size'] ?? 24.5} Acres • ${item['TotalFields'] ?? 8} Registered Fields",
                         style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
                       ),
                       const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.water_drop_rounded, size: 14, color: Colors.blue),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "Avg Moisture: ${item['AvgSoilMoisture'] ?? item['SoilMoisture'] ?? 21.0}%",
+                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.deepOrange.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.deepOrange.withValues(alpha: 0.3)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.thermostat_rounded, size: 14, color: Colors.deepOrange),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "Avg Temp: ${item['AvgSoilTemp'] ?? item['Temperature'] ?? 30.5}°C",
+                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.deepOrange.shade900),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.emerald.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.emerald.withValues(alpha: 0.3)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.speed_rounded, size: 14, color: AppColors.emerald),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "Zone Score (F1): ${item['urgency_score'] ?? '46.5'}",
+                                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.emerald),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.aquaBlue.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.aquaBlue.withValues(alpha: 0.3)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.opacity_rounded, size: 14, color: AppColors.aquaBlue),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "Zone Target (F2): ${item['target_water_req_mm'] ?? '42.5'} mm",
+                                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.aquaBlue),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
                       Row(
                         children: [
-                          const Icon(Icons.water_drop_rounded, size: 16, color: AppColors.aquaBlue),
+                          const Icon(Icons.water_drop_outlined, size: 16, color: AppColors.textSecondary),
                           const SizedBox(width: 6),
                           Text(
-                            "${item['PredictedVolume'] ?? 0} Liters Allocation",
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                            "Total Zone Allocation Volume: ${(item['PredictedVolume'] ?? 425000).toString()} Liters",
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.textDark),
                           ),
                         ],
                       ),
@@ -292,12 +420,12 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                           const SizedBox(width: 6),
                           Text(
                             "Rain forecast: ${item['RainfallForecast'] ?? 0} mm (${item['Date'] ?? 'Today'})",
-                            style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                           ),
                         ],
                       ),
                       if (item['Explanation'] != null && item['Explanation'].toString().isNotEmpty) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(

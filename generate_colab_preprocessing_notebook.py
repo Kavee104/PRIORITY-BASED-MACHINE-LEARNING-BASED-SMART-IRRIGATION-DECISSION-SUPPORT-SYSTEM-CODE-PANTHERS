@@ -1,0 +1,209 @@
+import json
+import pandas as pd
+
+# Define the Jupyter Notebook structure for Google Colab
+colab_notebook = {
+    "nbformat": 4,
+    "nbformat_minor": 0,
+    "metadata": {
+        "colab": {
+            "provenance": [],
+            "authorship_tag": "ABX"
+        },
+        "language_info": {
+            "name": "python"
+        }
+    },
+    "cells": [
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "# 💧 Smart Irrigation - Data Cleaning, Preprocessing & Feature Engineering Notebook\n",
+                "**Project:** Priority-Based Machine Learning Smart Irrigation Decision Support System\n",
+                "**Target Reservoir:** Nachchaduwa / Mahakandarawa Reservoir Data\n",
+                "**Output File:** `reservoir_data_with_lag_features.xlsx`"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "### Step 1: Import Required Libraries"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "import pandas as pd\n",
+                "import numpy as np\n",
+                "import matplotlib.pyplot as plt\n",
+                "import seaborn as sns\n",
+                "\n",
+                "print('Libraries imported successfully!')"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "### Step 2: Load Raw Reservoir Dataset\n",
+                "Upload your raw Excel or CSV dataset to Colab and load it."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# If uploading file to Colab:\n",
+                "# from google.colab import files\n",
+                "# uploaded = files.upload()\n",
+                "\n",
+                "# Load dataset\n",
+                "file_path = 'reservoir_data_with_lag_features.xlsx'  # or raw_reservoir_data.xlsx\n",
+                "df = pd.read_excel(file_path)\n",
+                "\n",
+                "print('Initial Dataset Shape:', df.shape)\n",
+                "df.head()"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "### Step 3: Data Cleaning & Handling Missing Values\n",
+                "- Date parsing and chronological sorting\n",
+                "- Duplicates check and removal\n",
+                "- Missing value treatment (Interpolation and Forward Fill)"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# 1. Ensure Date column is in datetime format\n",
+                "df['Date'] = pd.to_datetime(df['Date'])\n",
+                "df = df.sort_values('Date').reset_index(drop=True)\n",
+                "\n",
+                "# 2. Drop duplicates\n",
+                "df = df.drop_duplicates(subset=['Date']).reset_index(drop=True)\n",
+                "\n",
+                "# 3. Numeric columns cleaning and missing value interpolation\n",
+                "numeric_cols = [\n",
+                "    'Reservoir Water Level',\n",
+                "    'Reservoir Capacity',\n",
+                "    'Previous Water Release',\n",
+                "    'Rainfall (Nachchaduwa)'\n",
+                "]\n",
+                "\n",
+                "for col in numeric_cols:\n",
+                "    if col in df.columns:\n",
+                "        df[col] = pd.to_numeric(df[col], errors='coerce')\n",
+                "        # Linearly interpolate missing values, then forward fill/bfill\n",
+                "        df[col] = df[col].interpolate(method='linear').ffill().bfill()\n",
+                "\n",
+                "# 4. Add data quality flag\n",
+                "df['data_quality_flag'] = 'VALID'\n",
+                "\n",
+                "print('Cleaned Missing Values!')\n",
+                "df.info()"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "### Step 4: Feature Engineering (Creating Lag & Cumulative Features)\n",
+                "Create temporal lag features and rolling cumulative rainfall sums:\n",
+                "1. `prev_day_level`: Water level of previous day ($t-1$)\n",
+                "2. `prev_day_release`: Water release of previous day ($t-1$)\n",
+                "3. `level_change`: Daily water level change ($Level_t - Level_{t-1}$)\n",
+                "4. `rainfall_3day_sum`: 3-day accumulated rolling rainfall\n",
+                "5. `rainfall_7day_sum`: 7-day accumulated rolling rainfall"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# 1. Lag Features (Previous Day Water Level & Previous Day Release)\n",
+                "df['prev_day_level'] = df['Reservoir Water Level'].shift(1)\n",
+                "df['prev_day_release'] = df['Previous Water Release'].shift(1)\n",
+                "\n",
+                "# 2. Water Level Change Feature\n",
+                "df['level_change'] = df['Reservoir Water Level'] - df['prev_day_level']\n",
+                "\n",
+                "# 3. Rolling Cumulative Rainfall Features (3-Day & 7-Day Sums)\n",
+                "df['rainfall_3day_sum'] = df['Rainfall (Nachchaduwa)'].rolling(window=3, min_periods=1).sum()\n",
+                "df['rainfall_7day_sum'] = df['Rainfall (Nachchaduwa)'].rolling(window=7, min_periods=1).sum()\n",
+                "\n",
+                "# Fill initial NaN created by shift with backward fill\n",
+                "df['prev_day_level'] = df['prev_day_level'].bfill()\n",
+                "df['prev_day_release'] = df['prev_day_release'].bfill()\n",
+                "df['level_change'] = df['level_change'].fillna(0.0)\n",
+                "\n",
+                "print('Feature Engineering Completed!')\n",
+                "df[['Date', 'Reservoir Water Level', 'prev_day_level', 'level_change', 'rainfall_3day_sum']].head(10)"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "### Step 5: Export Cleaned & Preprocessed Dataset to Excel\n",
+                "Save the final feature-engineered dataset to `reservoir_data_with_lag_features.xlsx`."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Final column arrangement\n",
+                "final_columns = [\n",
+                "    'Date',\n",
+                "    'Reservoir Water Level',\n",
+                "    'Reservoir Capacity',\n",
+                "    'Previous Water Release',\n",
+                "    'Rainfall (Nachchaduwa)',\n",
+                "    'data_quality_flag',\n",
+                "    'prev_day_level',\n",
+                "    'prev_day_release',\n",
+                "    'rainfall_3day_sum',\n",
+                "    'rainfall_7day_sum',\n",
+                "    'level_change'\n",
+                "]\n",
+                "\n",
+                "final_df = df[final_columns]\n",
+                "\n",
+                "# Save to Excel\n",
+                "output_filename = 'reservoir_data_with_lag_features.xlsx'\n",
+                "final_df.to_excel(output_filename, index=False)\n",
+                "\n",
+                "print(f'Successfully exported final preprocessed dataset: {output_filename}')\n",
+                "print('Final Shape:', final_df.shape)\n",
+                "\n",
+                "# Download file from Google Colab automatically\n",
+                "# from google.colab import files\n",
+                "# files.download(output_filename)"
+            ]
+        }
+    ]
+}
+
+# Save to Colab Notebook file (.ipynb)
+notebook_filename = 'reservoir_preprocessing_and_cleaning.ipynb'
+with open(notebook_filename, 'w', encoding='utf-8') as f:
+    json.dump(colab_notebook, f, indent=2)
+
+print(f"Successfully created Colab Notebook file: '{notebook_filename}'!")

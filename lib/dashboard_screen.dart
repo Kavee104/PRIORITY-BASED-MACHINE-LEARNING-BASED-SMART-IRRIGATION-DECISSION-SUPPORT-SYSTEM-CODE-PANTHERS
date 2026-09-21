@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
@@ -49,6 +50,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isSavingSettings = false;
   late String _currentFarmerName;
 
+  // Telemetry real-time state variables
+  Timer? _sensorTimer;
+  int liveMoisture = 68;
+  double liveTemperature = 30.0;
+  String sensorStatus = "Searching Arduino...";
+  bool sensorConnected = false;
+
+  Future<void> fetchSensorData() async {
+    try {
+      final res = await http.get(Uri.parse("$baseUrl/sensor-data")).timeout(const Duration(seconds: 2));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (!mounted) return;
+        setState(() {
+          liveMoisture = (data['moisture'] ?? 68).toInt();
+          liveTemperature = (data['temperature'] ?? 30.0).toDouble();
+          sensorStatus = data['status'] ?? "Telemetry Active";
+          sensorConnected = data['connected'] ?? false;
+        });
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
@@ -60,10 +84,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _currentPasswordController = TextEditingController();
     _newPasswordController = TextEditingController();
     loadData();
+    fetchSensorData();
+    _sensorTimer = Timer.periodic(const Duration(seconds: 1), (_) => fetchSensorData());
   }
 
   @override
   void dispose() {
+    _sensorTimer?.cancel();
     _nameController.dispose();
     _emailController.dispose();
     _zoneController.dispose();
@@ -592,20 +619,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   prefixIcon: Icons.email_rounded,
                   keyboardType: TextInputType.emailAddress,
                 ),
-                const SizedBox(height: 16),
-                CustomTextField(
-                  controller: _zoneController,
-                  labelText: "Zone No",
-                  prefixIcon: Icons.map_rounded,
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 16),
-                CustomTextField(
-                  controller: _sizeController,
-                  labelText: "Field Size (Acres)",
-                  prefixIcon: Icons.square_foot_rounded,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
               ],
             ),
           ),
@@ -760,35 +773,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 20),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.sensors_rounded, color: AppColors.brightGreen, size: 20),
-                        const SizedBox(width: 10),
-                        const Text(
-                          "IoT Sensor Telemetry Active",
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryGreen.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppColors.brightGreen.withValues(alpha: 0.5)),
+                        Icon(Icons.sensors_rounded, color: sensorConnected ? AppColors.brightGreen : Colors.orangeAccent, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            sensorStatus,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
                           ),
-                          child: const Text(
-                            "CONNECTED",
-                            style: TextStyle(color: AppColors.brightGreen, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: (sensorConnected ? AppColors.primaryGreen : Colors.orange).withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: (sensorConnected ? AppColors.brightGreen : Colors.orangeAccent).withValues(alpha: 0.5)),
+                          ),
+                          child: Text(
+                            sensorConnected ? "CONNECTED" : "SEARCHING",
+                            style: TextStyle(color: sensorConnected ? AppColors.brightGreen : Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ],
                     ),
                   ),
+
                 ],
               ),
             ),
@@ -812,22 +830,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   childAspectRatio: constraints.maxWidth > 600 ? 2.2 : 1.8,
-                  children: const [
+                  children: [
                     _MetricStatCard(
                       icon: Icons.opacity_rounded,
                       title: "Soil Moisture",
-                      value: "68%",
-                      badgeText: "Optimal",
-                      badgeColor: AppColors.primaryGreen,
+                      value: "$liveMoisture%",
+                      badgeText: liveMoisture < 40 ? "Needs Water" : "Optimal",
+                      badgeColor: liveMoisture < 40 ? AppColors.warning : AppColors.primaryGreen,
                       subtitle: "Moisture Index",
                       iconColor: AppColors.primaryGreen,
                     ),
                     _MetricStatCard(
                       icon: Icons.thermostat_rounded,
                       title: "Temperature",
-                      value: "30°C",
-                      badgeText: "Normal",
-                      badgeColor: AppColors.warning,
+                      value: "${liveTemperature.toStringAsFixed(1)}°C",
+                      badgeText: liveTemperature > 35 ? "High" : "Normal",
+                      badgeColor: liveTemperature > 35 ? AppColors.danger : AppColors.warning,
                       subtitle: "Ambient Temp",
                       iconColor: AppColors.warning,
                     ),
@@ -1105,21 +1123,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(width: 10),
             ],
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _selectedNavItem == 'Settings' ? "Profile & Account Settings" : "Smart Irrigation Dashboard",
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText, fontSize: 18),
-                ),
-                Text(
-                  _selectedNavItem == 'Settings' ? "Manage farmer details and system preferences" : "AI-Powered Water Allocation & Field Telemetry",
-                  style: const TextStyle(color: AppColors.secondaryText, fontSize: 12),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _selectedNavItem == 'Settings' ? "Profile & Account Settings" : "Smart Irrigation Dashboard",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText, fontSize: 16),
+                  ),
+                  Text(
+                    _selectedNavItem == 'Settings' ? "Manage farmer details & preferences" : "AI-Powered Water Allocation & Telemetry",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.secondaryText, fontSize: 11),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
+
         actions: [
           IconButton(
             icon: const Icon(Icons.logout_rounded, color: AppColors.secondaryText),

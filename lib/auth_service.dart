@@ -44,8 +44,8 @@ class WaterRequest {
   final String farmerName;
   String status; // "Pending", "Approved", "Rejected"
   final String requestTime;
-  final int soilMoisture;
-  final double soilTemperature;
+  final int? soilMoisture;
+  final double? soilTemperature;
 
   WaterRequest({
     required this.requestID,
@@ -55,8 +55,8 @@ class WaterRequest {
     required this.farmerName,
     required this.status,
     required this.requestTime,
-    this.soilMoisture = 28,
-    this.soilTemperature = 29.5,
+    this.soilMoisture,
+    this.soilTemperature,
   });
 
   Map<String, dynamic> toJson() => {
@@ -67,13 +67,14 @@ class WaterRequest {
         'farmer_name': farmerName,
         'Status': status,
         'RequestTime': requestTime,
-        'SoilMoisture': soilMoisture,
-        'SoilTemperature': soilTemperature,
+        if (soilMoisture != null) 'SoilMoisture': soilMoisture,
+        if (soilTemperature != null) 'SoilTemperature': soilTemperature,
       };
 }
 
 class AuthService {
   static final AuthService instance = AuthService._internal();
+  String? sessionToken;
 
   AuthService._internal() {
     _initDefaultAccounts();
@@ -174,9 +175,6 @@ class AuthService {
     final now = DateTime.now();
     final timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} (Just now)";
 
-    final moistVal = moisture ?? ((fieldId * 17) % 35 + 18);
-    final tempVal = temperature ?? (28.0 + (fieldId % 5) * 0.7);
-
     final req = WaterRequest(
       requestID: requestId ?? _nextRequestId++,
       farmerId: farmerId,
@@ -185,15 +183,15 @@ class AuthService {
       farmerName: farmerName,
       status: 'Pending',
       requestTime: timeStr,
-      soilMoisture: moistVal,
-      soilTemperature: tempVal,
+      soilMoisture: moisture,
+      soilTemperature: temperature,
     );
 
     _waterRequests.insert(0, req);
     addAuditLog(
       action: 'WATER_REQUEST',
       user: farmerName,
-      details: 'Submitted water request #${req.requestID} for $zoneName (Sensors: Moisture $moistVal%, Temp ${tempVal.toStringAsFixed(1)}°C)',
+      details: 'Submitted water request #${req.requestID} for $zoneName',
     );
     return req;
   }
@@ -411,8 +409,39 @@ class AuthService {
   }) async {
     final cleanIdentifier = identifier.trim().toLowerCase();
     final cleanPassword = password.trim();
+    sessionToken = null;
 
-    // 1. First check local RBAC database
+    // A backend session provides the farmer identity for owner-scoped IoT data.
+    // Keep the existing local demo account path as an offline fallback.
+    try {
+      final response = await http.post(
+        Uri.parse("${AppConfig.apiBaseUrl}/login"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"email": identifier, "password": password}),
+      ).timeout(const Duration(seconds: 4));
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        final serverRole = data['role'] == 'admin' ? UserRole.admin : UserRole.farmer;
+        if (serverRole != targetRole && serverRole != UserRole.admin) {
+          return AuthResponse(success: false, message: 'Access denied for this role');
+        }
+        final user = UserAccount(
+          id: data['farmer_id'] ?? data['id'] ?? 999,
+          username: identifier,
+          email: data['email'] ?? identifier,
+          password: password,
+          name: data['name'] ?? identifier,
+          role: serverRole,
+        );
+        sessionToken = data['session_token'] as String?;
+        _addAccount(user);
+        return AuthResponse(success: true, message: 'Login successful', user: user);
+      }
+    } catch (_) {
+      // A local demo account can still be used when the backend is offline.
+    }
+
+    // Existing in-memory demo accounts.
     if (_accounts.containsKey(cleanIdentifier)) {
       final account = _accounts[cleanIdentifier]!;
       if (account.password == cleanPassword) {
@@ -442,51 +471,9 @@ class AuthService {
       }
     }
 
-    // 2. Try remote backend if local user not found
-    try {
-      final response = await http.post(
-        Uri.parse("${AppConfig.apiBaseUrl}/login"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "email": identifier,
-          "password": password,
-        }),
-      ).timeout(const Duration(seconds: 4));
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        final user = UserAccount(
-          id: data['farmer_id'] ?? data['id'] ?? 999,
-          username: identifier,
-          email: data['email'] ?? identifier,
-          password: password,
-          name: data['name'] ?? identifier,
-          role: targetRole,
-        );
-        _addAccount(user);
-        addAuditLog(
-          action: 'USER_LOGIN',
-          user: user.name,
-          details: 'Logged in via API backend',
-        );
-        return AuthResponse(
-          success: true,
-          message: "Login successful via Backend",
-          user: user,
-        );
-      } else {
-        return AuthResponse(
-          success: false,
-          message: data['error'] ?? "Login failed",
-        );
-      }
-    } catch (_) {
-      // Backend unreachable and user not found locally
-      return AuthResponse(
-        success: false,
-        message: "User '$identifier' not found. Available demo accounts:\n• Farmer: farmer / farmer\n• Admin: admin / admin",
-      );
-    }
+    return AuthResponse(
+      success: false,
+      message: "Invalid credentials or backend unavailable for '$identifier'",
+    );
   }
 }

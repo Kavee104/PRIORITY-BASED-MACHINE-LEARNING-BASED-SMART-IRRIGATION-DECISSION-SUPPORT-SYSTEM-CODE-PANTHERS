@@ -7,8 +7,13 @@ import random
 import requests
 import smtplib
 import time
+import math
+import secrets
 from email.message import EmailMessage
 from flask import Flask, jsonify, request
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+import iot_store
+from iot_config import MYSQL_CONFIG, IOT_OFFLINE_SECONDS
 try:
   from flask_cors import CORS
 except ImportError:
@@ -29,6 +34,9 @@ else:
 
 # Simple admin key for protected admin actions. Set ADMIN_KEY env var in production.
 ADMIN_KEY = os.environ.get('ADMIN_KEY', 'supersecretadminkey')
+SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
+session_signer = URLSafeTimedSerializer(
+  os.environ.get('SESSION_SECRET') or secrets.token_hex(32), salt='farmer-session')
 
 # ---------------------------------------------------------------------------
 # MySQL Database Configuration (smart_irrigation_db)
@@ -37,15 +45,6 @@ try:
   import mysql.connector
 except ImportError:
   mysql = None
-
-MYSQL_CONFIG = {
-  'host': 'localhost',
-  'user': 'root',
-  'password': 'Iuri@12345',
-  'database': 'smart_irrigation_db',
-  'port': 3306,
-  'autocommit': True
-}
 
 def get_db_connection():
   try:
@@ -176,6 +175,26 @@ def _load_requests():
       print('Failed to load requests file:', e)
   return []
 
+
+def _attach_request_snapshots(requests_list):
+  ids = [r['RequestID'] for r in requests_list if isinstance(r.get('RequestID'), int)]
+  if not ids:
+    return requests_list
+  conn = get_db_connection()
+  if not conn:
+    return requests_list
+  try:
+    snapshots = iot_store.request_snapshots(conn, ids)
+    for item in requests_list:
+      snapshot = snapshots.get((item.get('RequestID'), item.get('farmer_id'), item.get('FieldID')))
+      if snapshot:
+        item.update(snapshot)
+  except Exception as e:
+    print('Sensor snapshot read error:', e)
+  finally:
+    conn.close()
+  return requests_list
+
 water_requests = _load_requests()
 _next_request_id = max([r.get('RequestID', 0) for r in water_requests], default=0) + 1
 
@@ -213,11 +232,38 @@ def _find_user(identifier):
   return username, None
 
 
+def _session_token(username, user):
+  canonical_username = next((key for key, record in users.items() if record is user), username)
+  return session_signer.dumps({
+    'username': canonical_username,
+    'farmer_id': user.get('id'),
+    'role': user.get('role'),
+  })
+
+
+def _current_farmer_id():
+  header = request.headers.get('Authorization', '')
+  if not header.startswith('Bearer '):
+    return None
+  try:
+    payload = session_signer.loads(
+      header[7:], max_age=SESSION_MAX_AGE_SECONDS)
+  except (BadSignature, SignatureExpired):
+    return None
+  if payload.get('role') != 'farmer':
+    return None
+  user = users.get(payload.get('username'))
+  farmer_id = payload.get('farmer_id')
+  if not user or user.get('role') != 'farmer' or user.get('id') != farmer_id:
+    return None
+  return farmer_id
+
+
 def _send_reset_otp_email(recipient, otp):
   smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
   smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-  smtp_user = os.environ.get('SMTP_USER', 'kchathumini57@gmail.com')
-  smtp_password = os.environ.get('SMTP_PASSWORD', 'qebbgxewnlqpvujg')
+  smtp_user = os.environ.get('SMTP_USER', '')
+  smtp_password = os.environ.get('SMTP_PASSWORD', '')
   smtp_from = os.environ.get('SMTP_FROM', smtp_user)
 
   if not smtp_host or not smtp_user or not smtp_password:
@@ -440,9 +486,17 @@ def _arduino_serial_loop():
       time.sleep(2)
 
 
-# Start background serial thread
-_serial_thread = threading.Thread(target=_arduino_serial_loop, daemon=True)
-_serial_thread.start()
+# Start the legacy Arduino Uno serial reader unless the deployment uses the
+# ESP32 Wi-Fi client. In ESP32 mode, leaving this reader enabled would seize
+# the board's COM port and prevent uploads or use of Arduino Serial Monitor.
+_serial_reader_enabled = os.getenv('ENABLE_ARDUINO_SERIAL_READER', '1').strip().lower() not in {
+  '0', 'false', 'no', 'off'
+}
+if _serial_reader_enabled:
+  _serial_thread = threading.Thread(target=_arduino_serial_loop, daemon=True)
+  _serial_thread.start()
+else:
+  latest_sensor_data['status'] = 'ESP32 Wi-Fi telemetry mode'
 
 
 @app.route('/sensor-data', methods=['GET'])
@@ -452,19 +506,111 @@ def get_sensor_data():
 
 @app.route('/sensor-data', methods=['POST'])
 def update_sensor_data():
+  data = request.get_json(silent=True)
+  if not isinstance(data, dict):
+    return jsonify({'status': 'error', 'message': 'JSON object required'}), 400
+  device_id = data.get('deviceId')
+  device_token = data.get('deviceToken')
+  if not isinstance(device_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{3,80}', device_id):
+    return jsonify({'status': 'error', 'message': 'Valid deviceId required'}), 400
+  if not isinstance(device_token, str) or not device_token:
+    return jsonify({'status': 'error', 'message': 'deviceToken required'}), 400
+  moisture = data.get('moisture')
+  temperature = data.get('temperature')
+  if (isinstance(moisture, bool) or not isinstance(moisture, (int, float))
+      or not math.isfinite(moisture) or not 0 <= moisture <= 100):
+    return jsonify({'status': 'error', 'message': 'moisture must be a number from 0 to 100'}), 400
+  if (isinstance(temperature, bool) or not isinstance(temperature, (int, float))
+      or not math.isfinite(temperature) or not -40 <= temperature <= 85):
+    return jsonify({'status': 'error', 'message': 'temperature must be a number from -40 to 85 C'}), 400
+  conn = get_db_connection()
+  if not conn:
+    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
   try:
-    data = request.get_json(force=True)
-    if 'moisture' in data:
-      latest_sensor_data['moisture'] = int(data['moisture'])
-    if 'temperature' in data:
-      latest_sensor_data['temperature'] = float(data['temperature'])
-    if 'raw_analog' in data:
-      latest_sensor_data['raw_analog'] = int(data['raw_analog'])
-    latest_sensor_data['status'] = 'HTTP Override Active'
-    latest_sensor_data['connected'] = True
-    return jsonify({'status': 'success', 'sensor_data': latest_sensor_data}), 200
+    iot_store.record_reading(conn, device_id, device_token, moisture, temperature)
+    return jsonify({'status': 'success', 'message': 'Sensor data recorded',
+                    'deviceId': device_id, 'moisture': moisture,
+                    'temperature': temperature}), 201
+  except iot_store.UnknownDevice:
+    return jsonify({'status': 'error', 'message': 'Unknown or disabled device'}), 404
+  except iot_store.InvalidDeviceToken:
+    return jsonify({'status': 'error', 'message': 'Invalid device token'}), 401
   except Exception as e:
-    return jsonify({'status': 'error', 'message': str(e)}), 400
+    print('IoT sensor write error:', e)
+    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
+  finally:
+    conn.close()
+
+
+@app.route('/api/user/sensor-data', methods=['GET'])
+def get_user_sensor_data():
+  farmer_id = _current_farmer_id()
+  if farmer_id is None:
+    return jsonify({'status': 'error', 'message': 'Farmer session required'}), 401
+  conn = get_db_connection()
+  if not conn:
+    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
+  try:
+    devices = iot_store.list_latest(conn, IOT_OFFLINE_SECONDS, farmer_id)
+    if not devices:
+      return jsonify({'status': 'no_device', 'message': 'No ESP32 registered for this user',
+                      'devices': []}), 200
+    latest = max(devices, key=lambda d: d['lastSeen'] or '')
+    return jsonify({'status': 'success', **latest, 'devices': devices}), 200
+  except Exception as e:
+    print('IoT user read error:', e)
+    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
+  finally:
+    conn.close()
+
+
+@app.route('/api/admin/sensors', methods=['GET'])
+def get_admin_sensors():
+  if not _admin_key_valid(request):
+    return jsonify({'status': 'error', 'message': 'admin key required'}), 401
+  conn = get_db_connection()
+  if not conn:
+    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
+  try:
+    sensors = iot_store.list_latest(conn, IOT_OFFLINE_SECONDS)
+    for sensor in sensors:
+      farmer = next((u for u in users.values()
+                     if u.get('id') == sensor['farmerId'] and u.get('role') == 'farmer'), None)
+      sensor['farmerName'] = farmer.get('name', farmer.get('email', '')) if farmer else f"Farmer #{sensor['farmerId']}"
+    return jsonify({'status': 'success', 'sensors': sensors}), 200
+  except Exception as e:
+    print('IoT admin read error:', e)
+    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
+  finally:
+    conn.close()
+
+
+@app.route('/api/sensor-history/<device_id>', methods=['GET'])
+def get_sensor_history(device_id):
+  farmer_id = _current_farmer_id()
+  if not _admin_key_valid(request) and farmer_id is None:
+    return jsonify({'status': 'error', 'message': 'Authorization required'}), 401
+  try:
+    limit = int(request.args.get('limit', '100'))
+  except ValueError:
+    return jsonify({'status': 'error', 'message': 'Invalid limit'}), 400
+  if limit < 1 or limit > 500:
+    return jsonify({'status': 'error', 'message': 'limit must be 1 to 500'}), 400
+  conn = get_db_connection()
+  if not conn:
+    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
+  try:
+    readings = iot_store.history(
+      conn, device_id, limit, None if _admin_key_valid(request) else farmer_id)
+    return jsonify({'status': 'success', 'deviceId': device_id,
+                    'readings': readings}), 200
+  except iot_store.UnknownDevice:
+    return jsonify({'status': 'error', 'message': 'Device not found'}), 404
+  except Exception as e:
+    print('IoT history error:', e)
+    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
+  finally:
+    conn.close()
 
 
 # Simple in-memory reservoir status (level in percent)
@@ -664,7 +810,8 @@ def auth_login():
     return jsonify({'status': 'error', 'message': 'invalid credentials'}), 401
   # For simplicity return role. In production return a JWT or session cookie.
   _audit('USER_LOGIN', username, f'Logged in via /auth/login (role: {user["role"]})')
-  return jsonify({'status': 'success', 'username': username, 'role': user['role'], 'farmer_id': user.get('id', 101)}), 200
+  return jsonify({'status': 'success', 'username': username, 'role': user['role'],
+                  'farmer_id': user.get('id', 101), 'session_token': _session_token(username, user)}), 200
 
 
 @app.route('/login', methods=['POST'])
@@ -687,7 +834,8 @@ def app_login():
         'status': 'success',
         'name': 'Admin',
         'role': 'admin',
-        'farmer_id': farmer_id
+        'farmer_id': farmer_id,
+        'session_token': _session_token(email, user)
       }), 200
 
     _audit('USER_LOGIN', email, f'Logged in via /login (role: {user.get("role")})')
@@ -696,7 +844,8 @@ def app_login():
       'name': user.get('name', email),
       'email': user.get('email', email),
       'role': user.get('role', 'farmer'),
-      'farmer_id': farmer_id
+      'farmer_id': farmer_id,
+      'session_token': _session_token(email, user)
     }), 200
 
   return jsonify({'error': 'Invalid email or password'}), 401
@@ -1010,12 +1159,42 @@ def add_farmer_field(farmer_id):
 def submit_water_request():
   global _next_request_id
   import datetime
-  data = request.get_json(force=True)
-  farmer_id = data.get('farmer_id')
-  field_id = data.get('field_id')
-
-  if not farmer_id or not field_id:
+  data = request.get_json(silent=True) or {}
+  try:
+    farmer_id = int(data.get('farmer_id'))
+    field_id = int(data.get('field_id'))
+  except (TypeError, ValueError):
     return jsonify({'error': 'farmer_id and field_id are required'}), 400
+  current_farmer = _current_farmer_id()
+  if request.headers.get('Authorization') and current_farmer is None:
+    return jsonify({'error': 'Valid farmer session required'}), 401
+  if current_farmer is not None:
+    farmer_id = current_farmer
+
+  # Resolve the field before creating a request or attaching a zone reading.
+  zone_no = None
+  conn = get_db_connection()
+  if conn:
+    try:
+      cursor = conn.cursor(dictionary=True)
+      cursor.execute("SELECT ZoneNo FROM field_profile WHERE FieldID = %s AND FarmerID = %s",
+                     (field_id, farmer_id))
+      fp_row = cursor.fetchone()
+      if fp_row:
+        zone_no = int(fp_row['ZoneNo'])
+      cursor.close()
+    except Exception as e:
+      print('Field lookup error:', e)
+    finally:
+      conn.close()
+  if zone_no is None:
+    for field in farmer_fields.get(farmer_id, []):
+      if field.get('FieldID') == field_id:
+        zone_no = int(field['ZoneNo'])
+        break
+  if zone_no is None:
+    return jsonify({'error': 'Field not found for farmer'}), 404
+  zone_name = f'Zone {zone_no} (Field #{field_id})'
 
   new_req_id = None
   conn = get_db_connection()
@@ -1027,36 +1206,18 @@ def submit_water_request():
         (farmer_id, field_id)
       )
       new_req_id = cursor.lastrowid
+      conn.commit()
       cursor.close()
-      conn.close()
       print(f"Successfully inserted irrigation request #{new_req_id} into MySQL database!")
     except Exception as e:
       print("Error inserting water request into MySQL:", e)
+      conn.rollback()
+    finally:
+      conn.close()
 
   if not new_req_id:
     new_req_id = _next_request_id
     _next_request_id += 1
-
-  zone_name = f'Zone (Field #{field_id})'
-  conn = get_db_connection()
-  if conn:
-    try:
-      cursor = conn.cursor(dictionary=True)
-      cursor.execute("SELECT ZoneNo FROM field_profile WHERE FieldID = %s", (field_id,))
-      fp_row = cursor.fetchone()
-      if fp_row and fp_row.get('ZoneNo'):
-        zone_name = f"Zone {fp_row['ZoneNo']} (Field #{field_id})"
-      cursor.close()
-      conn.close()
-    except Exception:
-      pass
-
-  if 'Zone (Field' in zone_name:
-    fields = farmer_fields.get(farmer_id, [])
-    for f in fields:
-      if f.get('FieldID') == field_id:
-        zone_name = f'Zone {f.get("ZoneNo", "?")} (Field #{field_id})'
-        break
 
   req = {
     'RequestID': new_req_id,
@@ -1067,6 +1228,26 @@ def submit_water_request():
     'RequestTime': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     'farmer_name': f'Farmer #{farmer_id}',
   }
+
+  # Keep the reading at request time, independently of future live updates.
+  if zone_no is not None and current_farmer is not None:
+    conn = get_db_connection()
+    if conn:
+      try:
+        reading = iot_store.latest_for_field(conn, farmer_id, zone_no, IOT_OFFLINE_SECONDS)
+        if reading and reading['deviceStatus'] == 'ONLINE':
+          iot_store.save_request_snapshot(conn, new_req_id, farmer_id, field_id, zone_no, reading)
+          req.update({
+            'SoilMoisture': reading['moisture'],
+            'SoilTemperature': reading['temperature'],
+            'SensorRecordedAt': reading['recordedAt'],
+            'DeviceID': reading['deviceId'],
+            'ZoneNo': zone_no,
+          })
+      except Exception as e:
+        print('Sensor snapshot write error:', e)
+      finally:
+        conn.close()
 
   water_requests.insert(0, req)  # newest first
   _audit('WATER_REQUEST', f'farmer_{farmer_id}', f'Submitted water request #{req["RequestID"]} for field #{field_id} ({zone_name})')
@@ -1110,7 +1291,15 @@ def get_my_requests(farmer_id):
   for r in db_reqs:
     req_map[r['RequestID']] = r
 
-  combined_reqs = list(req_map.values())
+  sensor_fields = ('SoilMoisture', 'SoilTemperature', 'SensorRecordedAt',
+                   'DeviceID')
+  if _current_farmer_id() == farmer_id:
+    combined_reqs = _attach_request_snapshots(list(req_map.values()))
+  else:
+    combined_reqs = [dict(item) for item in req_map.values()]
+    for item in combined_reqs:
+      for field in sensor_fields:
+        item.pop(field, None)
   now = datetime.datetime.now()
   display_reqs = []
   for r in combined_reqs:
@@ -1136,7 +1325,13 @@ def get_my_requests(farmer_id):
 # Legacy endpoint for officer/irrigation screen
 @app.route('/requests', methods=['GET'])
 def get_all_requests():
-  return jsonify({'requests': water_requests}), 200
+  public_requests = []
+  for item in water_requests:
+    safe_item = {key: value for key, value in item.items()
+                 if key not in ('SoilMoisture', 'SoilTemperature',
+                                'SensorRecordedAt', 'DeviceID')}
+    public_requests.append(safe_item)
+  return jsonify({'requests': public_requests}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -1184,7 +1379,8 @@ def admin_get_water_requests():
     if 'RequestID' in r:
       req_map[r['RequestID']] = r
 
-  sorted_reqs = sorted(list(req_map.values()), key=lambda x: x.get('RequestID', 0), reverse=True)
+  sorted_reqs = sorted(_attach_request_snapshots(list(req_map.values())),
+                       key=lambda x: x.get('RequestID', 0), reverse=True)
   return jsonify({'status': 'success', 'requests': sorted_reqs}), 200
 
 
@@ -1421,6 +1617,6 @@ def predict_water_release():
 
 
 if __name__ == '__main__':
-  # Run development server on port 5000
-  app.run(host='0.0.0.0', port=5000, debug=True)
+  app.run(host=os.environ.get('API_HOST', '127.0.0.1'),
+          port=int(os.environ.get('API_PORT', '5000')), debug=False)
 

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
-import 'dart:html' as html;
+import 'csv_download_io.dart'
+    if (dart.library.html) 'csv_download_web.dart' as csv_download;
 import 'app_config.dart';
 import 'app_theme.dart';
 import 'auth_service.dart';
@@ -43,12 +45,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int? _actionInProgressId;
 
   // Sensor Data Telemetry
-  Map<String, dynamic>? _sensorData;
+  List<dynamic> _zoneSensors = [];
+  String? _sensorError;
+  Timer? _sensorTimer;
 
   @override
   void initState() {
     super.initState();
     _loadAllData();
+    _sensorTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _fetchZoneSensors();
+      _fetchWaterRequests();
+    });
+  }
+
+  @override
+  void dispose() {
+    _sensorTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadAllData() async {
@@ -58,7 +72,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _fetchWaterRequests(),
       _fetchAuditLog(),
       _fetchUsers(),
-      _fetchSensorData(),
+      _fetchZoneSensors(),
     ]);
 
     await _fetchStats();
@@ -68,31 +82,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  Future<void> _fetchSensorData() async {
+  Future<void> _fetchZoneSensors() async {
     try {
-      final response = await http
-          .get(Uri.parse('$baseUrl/sensor-data'))
-          .timeout(const Duration(seconds: 3));
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/admin/sensors'),
+        headers: {'X-Admin-Key': _adminKey},
+      ).timeout(const Duration(seconds: 3));
+      if (!mounted) return;
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            _sensorData = data;
-          });
-        }
+        setState(() {
+          _zoneSensors = data['sensors'] ?? [];
+          _sensorError = null;
+        });
+      } else {
+        setState(() => _sensorError = 'IoT data unavailable (${response.statusCode})');
       }
     } catch (_) {
-      if (mounted && _sensorData == null) {
-        setState(() {
-          _sensorData = {
-            'moisture': 68,
-            'temperature': 30.0,
-            'raw_analog': 450,
-            'status': 'Live Telemetry Active',
-            'connected': true,
-          };
-        });
-      }
+      if (mounted) setState(() => _sensorError = 'IoT backend unreachable');
     }
   }
 
@@ -136,11 +143,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   List<dynamic> _getCombinedRequests() {
     final localReqs = AuthService.instance.getWaterRequests().map((r) => r.toJson()).toList();
     final combinedMap = <int, dynamic>{};
-    for (var r in _waterRequests) {
-      if (r['RequestID'] != null) combinedMap[r['RequestID'] as int] = r;
-    }
     for (var r in localReqs) {
       combinedMap[r['RequestID'] as int] = r;
+    }
+    for (var r in _waterRequests) {
+      if (r['RequestID'] != null) combinedMap[r['RequestID'] as int] = r;
     }
     final list = combinedMap.values.toList();
     list.sort((a, b) {
@@ -167,36 +174,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final reqId = r['RequestID'] ?? 0;
       final farmer = r['farmer_name'] ?? 'Unknown';
       final zone = r['ZoneName'] ?? '';
-      final moist = r['SoilMoisture'] ?? r['soil_moisture'] ?? 30;
-      final temp = r['SoilTemperature'] ?? r['soil_temperature'] ?? 29.5;
-      final double targetMm = ((75.0 - (moist is num ? moist : 30)) * 0.8) + (((temp is num ? temp.toDouble() : 29.5) - 25.0) * 0.5);
+      final moist = r['SoilMoisture'] ?? r['soil_moisture'];
+      final temp = r['SoilTemperature'] ?? r['soil_temperature'];
+      final targetMm = moist is num && temp is num
+          ? (((75.0 - moist) * 0.8) + ((temp - 25.0) * 0.5)).toStringAsFixed(2)
+          : '';
       final reqTime = r['RequestTime'] ?? '';
       final status = r['Status'] ?? 'Pending';
 
-      csv.writeln('"$reqId","$farmer","$zone","$moist","$temp","${targetMm.toStringAsFixed(2)}","$reqTime","$status"');
+      csv.writeln('"$reqId","$farmer","$zone","${moist ?? ''}","${temp ?? ''}","$targetMm","$reqTime","$status"');
     }
 
     try {
       final bytes = utf8.encode(csv.toString());
-      final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
-      final url = html.Url.createObjectUrlFromBlob(blob);
       final filename = "smart_irrigation_requests_${DateTime.now().millisecondsSinceEpoch}.csv";
-      final anchor = html.AnchorElement(href: url)
-        ..setAttribute("download", filename)
-        ..click();
-      html.Url.revokeObjectUrl(url);
+      final savedLocation = csv_download.saveCsv(bytes, filename);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Downloaded $filename to your Downloads folder!"),
+          content: Text("Saved CSV report to $savedLocation"),
           backgroundColor: AppColors.primaryGreen,
         ),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Exported CSV Report with ${_waterRequests.length} requests successfully!"),
-          backgroundColor: AppColors.primaryGreen,
+          content: Text("Could not export CSV report: $e"),
+          backgroundColor: Colors.redAccent,
         ),
       );
     }
@@ -617,9 +621,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           const SizedBox(height: 28),
                           _buildMetricsSection(),
                           const SizedBox(height: 32),
-                          const WaterReleasePredictionCard(),
-                          const SizedBox(height: 32),
-                          _buildWaterRequestsSection(),
+                           const WaterReleasePredictionCard(),
+                           const SizedBox(height: 32),
+                           _buildZoneSensorsSection(),
+                           const SizedBox(height: 32),
+                           _buildWaterRequestsSection(),
 
                           const SizedBox(height: 32),
                           _buildAuditTrailSection(),
@@ -796,6 +802,50 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   // -------------------------------------------------------------------------
   // Water Requests with Approve/Reject Actions
   // -------------------------------------------------------------------------
+  Widget _buildZoneSensorsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Zone ESP32 Sensors',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold,
+                color: AppColors.primaryText)),
+        const SizedBox(height: 12),
+        if (_sensorError != null)
+          Text(_sensorError!, style: const TextStyle(color: AppColors.danger))
+        else if (_zoneSensors.isEmpty)
+          const Text('No ESP32 devices registered yet.')
+        else
+          ..._zoneSensors.map((item) {
+            final sensor = item as Map<String, dynamic>;
+            final online = sensor['deviceStatus'] == 'ONLINE';
+            final moisture = sensor['moisture'];
+            final temperature = sensor['temperature'];
+            return Card(
+              color: Colors.white,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Wrap(
+                  spacing: 24,
+                  runSpacing: 8,
+                  children: [
+                    Text('Zone ${sensor['zoneNo']} · ${sensor['farmerName']}',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text('Device: ${sensor['deviceId']}'),
+                    Text('Moisture: ${moisture == null ? '--' : '$moisture%'}'),
+                    Text('Temperature: ${temperature == null ? '--' : '$temperature°C'}'),
+                    Text(online ? 'ONLINE' : 'OFFLINE',
+                        style: TextStyle(color: online ? AppColors.primaryGreen : AppColors.danger,
+                            fontWeight: FontWeight.bold)),
+                    Text('Last updated: ${sensor['lastSeen'] ?? 'Never'}'),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
   Widget _buildWaterRequestsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -933,21 +983,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         : rawZone;
 
                     final moistNum = r['SoilMoisture'] ?? r['soil_moisture'];
-                    final int moistVal = (moistNum is num) ? moistNum.toInt() : ((reqId * 17) % 35 + 18);
-                    final bool isDryDemand = moistVal < 35;
+                    final int? moistVal = (moistNum is num) ? moistNum.toInt() : null;
+                    final bool isDryDemand = moistVal != null && moistVal < 35;
 
                     final tempNum = r['SoilTemperature'] ?? r['soil_temperature'];
-                    final double tempVal = (tempNum is num) ? tempNum.toDouble() : (28.0 + (reqId % 5) * 0.7);
+                    final double? tempVal = (tempNum is num) ? tempNum.toDouble() : null;
 
                     // Formula 2: Target Water Requirement (mm)
-                    final double targetWaterMm = ((75.0 - moistVal) * 0.8) + ((tempVal - 25.0) * 0.5);
-                    final double finalTargetMm = targetWaterMm < 0 ? 0.0 : targetWaterMm;
+                    final double? targetWaterMm = moistVal != null && tempVal != null
+                        ? ((75.0 - moistVal) * 0.8) + ((tempVal - 25.0) * 0.5) : null;
+                    final double? finalTargetMm = targetWaterMm == null ? null
+                        : targetWaterMm < 0 ? 0.0 : targetWaterMm;
 
                     return DataRow(
                       cells: [
                         DataCell(Text("#$reqId", style: const TextStyle(fontWeight: FontWeight.bold))),
                         DataCell(Text("${r['farmer_name'] ?? 'Unknown'}")),
-                        DataCell(Text(fieldLabel)),
+                        DataCell(Text('$fieldLabel\n${r['DeviceID'] ?? 'No sensor snapshot'}')),
                         DataCell(
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -970,7 +1022,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  "$moistVal% ${isDryDemand ? '(High Need)' : '(Optimal)'}",
+                                  moistVal == null ? 'No snapshot' : "$moistVal% ${isDryDemand ? '(High Need)' : '(Optimal)'}",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 11,
@@ -1001,7 +1053,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  "${tempVal.toStringAsFixed(1)} °C",
+                                  tempVal == null ? 'No snapshot' : "${tempVal.toStringAsFixed(1)} °C",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 11,
@@ -1032,7 +1084,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  "${finalTargetMm.toStringAsFixed(1)} mm",
+                                  finalTargetMm == null ? '--' : "${finalTargetMm.toStringAsFixed(1)} mm",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 11,

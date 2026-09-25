@@ -52,25 +52,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Telemetry real-time state variables
   Timer? _sensorTimer;
-  int liveMoisture = 68;
-  double liveTemperature = 30.0;
-  String sensorStatus = "Searching Arduino...";
+  bool _sensorFetchInProgress = false;
+  num? liveMoisture;
+  double? liveTemperature;
+  int? sensorZoneNo;
+  String sensorStatus = "No sensor data available";
   bool sensorConnected = false;
 
   Future<void> fetchSensorData() async {
+    if (_sensorFetchInProgress) return;
+    final token = AuthService.instance.sessionToken;
+    if (token == null) {
+      if (mounted) {
+        setState(() {
+        sensorConnected = false;
+        sensorStatus = "Backend login required for ESP32 data";
+        });
+      }
+      return;
+    }
+    _sensorFetchInProgress = true;
     try {
-      final res = await http.get(Uri.parse("$baseUrl/sensor-data")).timeout(const Duration(seconds: 2));
+      final res = await http.get(
+        Uri.parse("$baseUrl/api/user/sensor-data"),
+        headers: {"Authorization": "Bearer $token"},
+      ).timeout(const Duration(seconds: 2));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (!mounted) return;
         setState(() {
-          liveMoisture = (data['moisture'] ?? 68).toInt();
-          liveTemperature = (data['temperature'] ?? 30.0).toDouble();
-          sensorStatus = data['status'] ?? "Telemetry Active";
-          sensorConnected = data['connected'] ?? false;
+          liveMoisture = data['moisture'] is num ? data['moisture'] as num : null;
+          liveTemperature = data['temperature'] is num
+              ? (data['temperature'] as num).toDouble() : null;
+          sensorZoneNo = data['zoneNo'] is num ? (data['zoneNo'] as num).toInt() : null;
+          sensorConnected = data['deviceStatus'] == 'ONLINE';
+          sensorStatus = data['status'] == 'no_device'
+              ? 'No ESP32 registered for this user'
+              : sensorConnected ? 'ESP32 Online' : 'ESP32 Offline';
+        });
+      } else if (mounted) {
+        setState(() {
+          sensorConnected = false;
+          sensorStatus = res.statusCode == 503
+              ? 'Sensor database unavailable' : 'ESP32 data unavailable';
         });
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+        sensorConnected = false;
+        sensorStatus = 'Sensor backend unreachable';
+        });
+      }
+    } finally {
+      _sensorFetchInProgress = false;
+    }
   }
 
   @override
@@ -141,13 +177,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Merge shared AuthService requests so real-time approvals/rejections from Admin are immediately shown to Farmer
     final localReqs = AuthService.instance.getFarmerRequests(widget.farmerId).map((r) => r.toJson()).toList();
     final combinedMap = <int, dynamic>{};
-    for (var r in remoteReqs) {
+    for (var r in localReqs) {
       final rid = int.tryParse("${r['RequestID']}");
       if (rid != null) {
         combinedMap[rid] = r;
       }
     }
-    for (var r in localReqs) {
+    for (var r in remoteReqs) {
       final rid = int.tryParse("${r['RequestID']}");
       if (rid != null) {
         combinedMap[rid] = r;
@@ -182,7 +218,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final response = await http.post(
         Uri.parse("$baseUrl/request-water"),
-        headers: {"Content-Type": "application/json"},
+        headers: {
+          "Content-Type": "application/json",
+          if (AuthService.instance.sessionToken != null)
+            "Authorization": "Bearer ${AuthService.instance.sessionToken}",
+        },
         body: jsonEncode({
           "farmer_id": widget.farmerId,
           "field_id": fieldId,
@@ -193,15 +233,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _showMessage("Water request submitted successfully!", AppColors.primaryGreen);
         loadData();
       } else {
-        // Server returned non-201 error, fallback to local registration
-        AuthService.instance.addWaterRequest(
-          farmerId: widget.farmerId,
-          fieldId: fieldId,
-          zoneName: zoneName,
-          farmerName: _currentFarmerName,
-        );
-        _showMessage("Water request submitted!", AppColors.primaryGreen);
-        loadData();
+        _showMessage("Water request rejected by server (${response.statusCode})", Colors.redAccent);
       }
     } catch (e) {
       // Network error or timeout, fallback to local registration
@@ -211,7 +243,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         zoneName: zoneName,
         farmerName: _currentFarmerName,
       );
-      _showMessage("Water request submitted and synced to Admin!", AppColors.primaryGreen);
+      _showMessage("Water request saved locally; backend sync is pending", Colors.orangeAccent);
     }
 
     loadData();
@@ -799,7 +831,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             border: Border.all(color: (sensorConnected ? AppColors.brightGreen : Colors.orangeAccent).withValues(alpha: 0.5)),
                           ),
                           child: Text(
-                            sensorConnected ? "CONNECTED" : "SEARCHING",
+                            sensorConnected ? "ONLINE" : "OFFLINE",
                             style: TextStyle(color: sensorConnected ? AppColors.brightGreen : Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
                           ),
                         ),
@@ -834,18 +866,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     _MetricStatCard(
                       icon: Icons.opacity_rounded,
                       title: "Soil Moisture",
-                      value: "$liveMoisture%",
-                      badgeText: liveMoisture < 40 ? "Needs Water" : "Optimal",
-                      badgeColor: liveMoisture < 40 ? AppColors.warning : AppColors.primaryGreen,
+                      value: liveMoisture == null ? "--" : "$liveMoisture%",
+                      badgeText: liveMoisture == null ? "No data" : liveMoisture! < 40 ? "Needs Water" : "Optimal",
+                      badgeColor: liveMoisture != null && liveMoisture! < 40 ? AppColors.warning : AppColors.primaryGreen,
                       subtitle: "Moisture Index",
                       iconColor: AppColors.primaryGreen,
                     ),
                     _MetricStatCard(
                       icon: Icons.thermostat_rounded,
                       title: "Temperature",
-                      value: "${liveTemperature.toStringAsFixed(1)}°C",
-                      badgeText: liveTemperature > 35 ? "High" : "Normal",
-                      badgeColor: liveTemperature > 35 ? AppColors.danger : AppColors.warning,
+                      value: liveTemperature == null ? "--" : "${liveTemperature!.toStringAsFixed(1)}°C",
+                      badgeText: liveTemperature == null ? "No data" : liveTemperature! > 35 ? "High" : "Normal",
+                      badgeColor: liveTemperature != null && liveTemperature! > 35 ? AppColors.danger : AppColors.warning,
                       subtitle: "Ambient Temp",
                       iconColor: AppColors.warning,
                     ),
@@ -961,7 +993,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           DataCell(Text("#${f['FieldID']}", style: const TextStyle(fontWeight: FontWeight.bold))),
                           DataCell(Text("Zone ${f['ZoneNo']}")),
                           DataCell(Text("${f['Size']} acres")),
-                          DataCell(Text("${f['Moisture'] ?? '68%'}")),
+                          DataCell(Text(sensorZoneNo == f['ZoneNo'] && liveMoisture != null
+                              ? "$liveMoisture%" : "${f['Moisture'] ?? '--'}")),
                           DataCell(
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

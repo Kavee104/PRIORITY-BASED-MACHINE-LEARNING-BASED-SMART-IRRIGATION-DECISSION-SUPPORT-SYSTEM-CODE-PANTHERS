@@ -186,7 +186,7 @@
   },
   "wa@gmail.com": {
     "id": 6,
-    "password_hash": "scrypt:32768:8:1$mFeE7W5JfLQtgT5a$1d6abb4b3f5defba66fda28dfb8e2cce1bc7265b2790698bd608079198a0a5584458827a2c0476aeba40e6bb3c55ff5ab2c058b83cfd8fb4117d91d277378744",
+    "password_hash": "scrypt:32768:8:1$AF1d377XUFcIaT68$c5dbf3dc172feff21082764b23b7cfaf8e4f80fe1eaa921253c380bd1048f233186f74f1233773c6d02760d32834ddd38bc06ab77ffb12a9e363d71655b251bf",
     "role": "farmer",
     "email": "wa@gmail.com",
     "name": "wa sa"

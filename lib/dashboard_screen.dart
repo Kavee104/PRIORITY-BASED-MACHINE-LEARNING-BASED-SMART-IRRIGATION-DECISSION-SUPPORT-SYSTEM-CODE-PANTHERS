@@ -8,6 +8,7 @@ import 'auth_service.dart';
 import 'field_creation_screen.dart';
 import 'login_widgets.dart';
 import 'main.dart';
+import 'supabase_sensor_service.dart';
 
 
 
@@ -61,17 +62,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> fetchSensorData() async {
     if (_sensorFetchInProgress) return;
+    _sensorFetchInProgress = true;
+    final cloudService = SupabaseSensorService.instance;
+
+    if (cloudService != null) {
+      try {
+        final reading = await cloudService.getLatestReadingForFarmer(
+          widget.farmerId,
+        );
+        if (!mounted) return;
+        setState(() {
+          liveMoisture = reading?.moisture;
+          liveTemperature = reading?.temperature;
+          sensorZoneNo = reading?.zoneNo;
+          sensorConnected = reading?.online ?? false;
+          sensorStatus = reading == null
+              ? 'No ESP32 registered for this user'
+              : '${reading.online ? 'ESP32 Online' : 'ESP32 Offline'}'
+                  ' • ${reading.deviceId}'
+                  ' • Zone ${reading.zoneNo ?? '--'}'
+                  ' • Updated ${_formatUpdatedAt(reading.lastUpdated)}';
+        });
+        _sensorFetchInProgress = false;
+        return;
+      } catch (_) {
+        // Keep the existing Flask endpoint as a fallback for cloud failures.
+      }
+    }
+
+    await _fetchSensorDataFromFlask();
+  }
+
+  Future<void> _fetchSensorDataFromFlask() async {
     final token = AuthService.instance.sessionToken;
     if (token == null) {
       if (mounted) {
         setState(() {
-        sensorConnected = false;
-        sensorStatus = "Backend login required for ESP32 data";
+          sensorConnected = false;
+          sensorStatus = SupabaseSensorService.isAvailable
+              ? 'Cloud telemetry unavailable; backend login required'
+              : 'Backend login required for ESP32 data';
         });
       }
+      _sensorFetchInProgress = false;
       return;
     }
-    _sensorFetchInProgress = true;
     try {
       final res = await http.get(
         Uri.parse("$baseUrl/api/user/sensor-data"),
@@ -100,13 +135,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (_) {
       if (mounted) {
         setState(() {
-        sensorConnected = false;
-        sensorStatus = 'Sensor backend unreachable';
+          sensorConnected = false;
+          sensorStatus = 'Sensor backend unreachable';
         });
       }
     } finally {
       _sensorFetchInProgress = false;
     }
+  }
+
+  String _formatUpdatedAt(DateTime? value) {
+    if (value == null) return 'never';
+    final local = value.toLocal();
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
   }
 
   @override
@@ -121,7 +164,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _newPasswordController = TextEditingController();
     loadData();
     fetchSensorData();
-    _sensorTimer = Timer.periodic(const Duration(seconds: 1), (_) => fetchSensorData());
+    _sensorTimer = Timer.periodic(const Duration(seconds: 5), (_) => fetchSensorData());
   }
 
   @override

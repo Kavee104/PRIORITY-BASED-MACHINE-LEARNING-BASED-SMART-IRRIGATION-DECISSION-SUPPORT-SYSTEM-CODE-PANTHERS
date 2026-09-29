@@ -17,6 +17,16 @@ class AppConfig {
     return 'http://localhost:5000';
   }
 
+  // Client-safe Supabase values must be supplied at build/run time. Never put
+  // a service-role key or device secret in the Flutter application.
+  static const String supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  static const String supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+  );
+
+  static bool get hasSupabaseConfig =>
+      supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
+
   static String get predictIrrigationUrl =>
       '$apiBaseUrl/predict_irrigation';
 

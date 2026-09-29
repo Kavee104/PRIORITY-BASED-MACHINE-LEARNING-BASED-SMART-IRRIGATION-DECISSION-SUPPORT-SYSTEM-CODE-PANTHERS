@@ -11,6 +11,7 @@ import 'user_management_screen.dart';
 import 'priority_schedule_screen.dart';
 import 'water_requirement.dart';
 import 'water_release_prediction_card.dart';
+import 'supabase_sensor_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final String adminName;
@@ -47,6 +48,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   List<dynamic> _zoneSensors = [];
   String? _sensorError;
   Timer? _sensorTimer;
+  bool _sensorFetchInProgress = false;
 
   @override
   void initState() {
@@ -82,6 +84,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _fetchZoneSensors() async {
+    if (_sensorFetchInProgress) return;
+    _sensorFetchInProgress = true;
+
+    final cloudService = SupabaseSensorService.instance;
+    if (cloudService != null) {
+      try {
+        final readings = await cloudService.getAllLatestDeviceReadings();
+        if (!mounted) return;
+        setState(() {
+          _zoneSensors = readings
+              .map((reading) => reading.toDashboardMap())
+              .toList();
+          _sensorError = null;
+        });
+        _sensorFetchInProgress = false;
+        return;
+      } catch (_) {
+        // Keep the existing Flask endpoint as a fallback for cloud failures.
+      }
+    }
+
+    await _fetchZoneSensorsFromFlask();
+  }
+
+  Future<void> _fetchZoneSensorsFromFlask() async {
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/api/admin/sensors'),
@@ -99,6 +126,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       }
     } catch (_) {
       if (mounted) setState(() => _sensorError = 'IoT backend unreachable');
+    } finally {
+      _sensorFetchInProgress = false;
     }
   }
 

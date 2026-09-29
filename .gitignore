@@ -31,10 +31,13 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+/.arduino-build/
 /coverage/
 .venv/
 .env
 .env.*
+esp32_sensor_client/device_secrets.h
+esp32_sensor_client/backups/
 
 # Symbolication related
 app.*.symbols

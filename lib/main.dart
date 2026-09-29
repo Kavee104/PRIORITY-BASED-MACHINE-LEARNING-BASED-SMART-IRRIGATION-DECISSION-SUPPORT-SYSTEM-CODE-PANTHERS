@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'supabase_sensor_service.dart';
 import 'app_config.dart';
 import 'app_theme.dart';
 import 'login_widgets.dart';
@@ -9,7 +10,9 @@ import 'admin_dashboard_screen.dart';
 import 'forgot_password_screen.dart';
 import 'auth_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SupabaseSensorService.initialize();
   runApp(const SmartIrrigationApp());
 }
 

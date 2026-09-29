@@ -99,6 +99,15 @@ class AuthService {
   void _initDefaultAccounts() {
     // Seed default role-based accounts (Farmer & Admin)
     _addAccount(UserAccount(
+      id: 6,
+      username: 'wa',
+      email: 'wa',
+      password: 'sa',
+      name: 'Farmer 6',
+      role: UserRole.farmer,
+    ));
+
+    _addAccount(UserAccount(
       id: 101,
       username: 'farmer',
       email: 'farmer@example.com',

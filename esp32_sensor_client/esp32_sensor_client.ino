@@ -1,6 +1,9 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <math.h>
+
+#include "device_secrets.h"
 
 // =====================================================
 // SMART IRRIGATION - ESP32-S3 IoT CLIENT
@@ -12,23 +15,22 @@
 // 1. CONNECTION CONFIGURATION
 // =====================================================
 
-// Wi-Fi network
-const char* wifiSsid = "Blind";
+// Defined locally in the gitignored device_secrets.h file.
+const char* wifiSsid = WIFI_SSID;
+const char* wifiPassword = WIFI_PASSWORD;
 
-// Paste your actual Wi-Fi password here
-const char* wifiPassword = "12345678";
-
-// PC running Flask
+// Supabase Edge Function
 const char* serverUrl =
-    "http://172.20.10.4:5000/sensor-data";
+    "https://bsmhjdwtbpbhlktjmocj.supabase.co/functions/v1/ingest-sensor";
 
 // Registered ESP32 device
 const char* deviceId =
     "ESP32_ZONE_01";
 
-// Paste your CURRENT registered device token here
+// Defined locally in the gitignored device_secrets.h file.
+// Never use Supabase service-role or database credentials here.
 const char* deviceToken =
-    "TCkcRHR3PK6SGheW4ySOIKX5K9GqVDcH8bHXa3DWhCg";
+    DEVICE_ESP32_ZONE_01_SECRET;
 
 
 // =====================================================
@@ -156,7 +158,7 @@ bool connectWifi() {
     Serial.print(WiFi.RSSI());
     Serial.println(" dBm");
 
-    Serial.print("Flask server: ");
+    Serial.print("Supabase endpoint: ");
     Serial.println(serverUrl);
 
     Serial.println();
@@ -180,7 +182,7 @@ bool connectWifi() {
 
 
 // =====================================================
-// 6. SEND DATA TO FLASK
+// 6. SEND DATA TO SUPABASE
 // =====================================================
 
 void sendSensorData(
@@ -229,8 +231,14 @@ void sendSensorData(
   Serial.print(temperature, 1);
   Serial.println(" °C");
 
-  Serial.println("Sending data to Flask...");
+  Serial.println("Sending data to Supabase...");
 
+
+  WiFiClientSecure client;
+
+  // Prototype connectivity test only. Replace with CA certificate
+  // validation before using this outside the initial test.
+  client.setInsecure();
 
   HTTPClient http;
 
@@ -238,7 +246,7 @@ void sendSensorData(
   http.setTimeout(5000);
 
 
-  if (!http.begin(serverUrl)) {
+  if (!http.begin(client, serverUrl)) {
 
     Serial.println(
       "ERROR: Could not initialize HTTP connection."
@@ -275,7 +283,7 @@ void sendSensorData(
 
       Serial.println();
       Serial.println(
-        "SUCCESS: Sensor data stored."
+        "SUCCESS: Cloud sensor data stored."
       );
 
     } else if (
@@ -463,7 +471,7 @@ void loop() {
 
 
   // ==================================
-  // SEND TO FLASK
+  // SEND TO SUPABASE
   // ==================================
 
   sendSensorData(

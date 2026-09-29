@@ -47,7 +47,7 @@ class _WaterReleasePredictionCardState
     final features = _predictionResult?['input_features'] ?? {};
     final predictedVal =
         _predictionResult?['predicted_water_release']?.toStringAsFixed(2) ??
-            '--';
+        '--';
     final dateStr = _predictionResult?['date'] ?? 'Live Today';
     final unitStr = _predictionResult?['unit'] ?? 'Acft/Day';
 
@@ -83,7 +83,9 @@ class _WaterReleasePredictionCardState
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(20.0),
+        padding: EdgeInsets.all(
+          MediaQuery.sizeOf(context).width < 480 ? 16.0 : 20.0,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -135,10 +137,7 @@ class _WaterReleasePredictionCardState
                             color: AppColors.teal,
                           ),
                         )
-                      : const Icon(
-                          Icons.refresh,
-                          color: AppColors.teal,
-                        ),
+                      : const Icon(Icons.refresh, color: AppColors.teal),
                   onPressed: _isLoading ? null : _fetchPrediction,
                   tooltip: 'Refresh Prediction',
                 ),
@@ -149,23 +148,35 @@ class _WaterReleasePredictionCardState
             const SizedBox(height: 12),
 
             // Fixed Target Reservoir Badge
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                const Icon(Icons.location_on_outlined,
-                    size: 20, color: AppColors.teal),
-                const SizedBox(width: 8),
-                const Text(
-                  'Target Reservoir:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                    color: AppColors.primaryText,
-                  ),
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.location_on_outlined,
+                      size: 20,
+                      color: AppColors.teal,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Target Reservoir:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: AppColors.primaryText,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.teal.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
@@ -214,8 +225,11 @@ class _WaterReleasePredictionCardState
               ),
               child: Column(
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    runSpacing: 8,
+                    spacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Text(
                         'PREDICTED RELEASE AMOUNT',
@@ -228,7 +242,9 @@ class _WaterReleasePredictionCardState
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.teal.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
@@ -245,30 +261,33 @@ class _WaterReleasePredictionCardState
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(
-                        predictedVal,
-                        style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.teal,
-                          letterSpacing: 0.5,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          predictedVal,
+                          style: const TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.teal,
+                            letterSpacing: 0.5,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        unitStr,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.secondaryText,
+                        const SizedBox(width: 8),
+                        Text(
+                          unitStr,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.secondaryText,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   if (releaseStatus.isNotEmpty) ...[
                     const SizedBox(height: 6),
@@ -341,16 +360,25 @@ class _WaterReleasePredictionCardState
         children: [
           Icon(icon, size: 18, color: AppColors.teal),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              color: AppColors.primaryText,
+          SizedBox(
+            width: double.infinity,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                  color: AppColors.primaryText,
+                ),
+              ),
             ),
           ),
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 10,
               color: AppColors.secondaryText,

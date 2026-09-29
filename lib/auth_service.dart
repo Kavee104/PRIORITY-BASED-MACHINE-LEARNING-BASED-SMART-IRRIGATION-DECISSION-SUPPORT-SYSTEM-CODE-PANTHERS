@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
+import 'urgency_score.dart';
+import 'water_requirement.dart';
 
 enum UserRole { farmer, admin }
 
@@ -46,6 +48,9 @@ class WaterRequest {
   final String requestTime;
   final int? soilMoisture;
   final double? soilTemperature;
+  final double areaAcres;
+  final double previousDayRainfall;
+  DateTime? approvedAt;
 
   WaterRequest({
     required this.requestID,
@@ -57,6 +62,8 @@ class WaterRequest {
     required this.requestTime,
     this.soilMoisture,
     this.soilTemperature,
+    this.areaAcres = 2.5,
+    this.previousDayRainfall = 0.0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -69,6 +76,9 @@ class WaterRequest {
         'RequestTime': requestTime,
         if (soilMoisture != null) 'SoilMoisture': soilMoisture,
         if (soilTemperature != null) 'SoilTemperature': soilTemperature,
+        'AreaAcres': areaAcres,
+        'PreviousDayRainfall': previousDayRainfall,
+        'ApprovedAt': approvedAt?.toIso8601String(),
       };
 }
 
@@ -171,6 +181,8 @@ class AuthService {
     int? requestId,
     int? moisture,
     double? temperature,
+    double? areaAcres,
+    double? previousDayRainfall,
   }) {
     final now = DateTime.now();
     final timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} (Just now)";
@@ -185,6 +197,8 @@ class AuthService {
       requestTime: timeStr,
       soilMoisture: moisture,
       soilTemperature: temperature,
+      areaAcres: areaAcres ?? 2.5,
+      previousDayRainfall: previousDayRainfall ?? 0.0,
     );
 
     _waterRequests.insert(0, req);
@@ -200,6 +214,7 @@ class AuthService {
     for (var r in _waterRequests) {
       if (r.requestID == requestId) {
         r.status = 'Approved';
+        r.approvedAt = DateTime.now();
         addAuditLog(
           action: 'REQUEST_APPROVED',
           user: 'admin',
@@ -250,59 +265,86 @@ class AuthService {
       return [];
     }
 
+    final Map<int, DateTime> lastIrrigationByField = {};
+    for (final request in _waterRequests) {
+      if (request.status == 'Approved' && request.approvedAt != null) {
+        final previous = lastIrrigationByField[request.fieldID];
+        if (previous == null || request.approvedAt!.isAfter(previous)) {
+          lastIrrigationByField[request.fieldID] = request.approvedAt!;
+        }
+      }
+    }
+
     final Map<String, List<Map<String, dynamic>>> zoneMap = {};
     for (var r in _waterRequests) {
       final zName = _cleanZoneName(r.zoneName);
       if (!zoneMap.containsKey(zName)) {
         zoneMap[zName] = [];
       }
-      zoneMap[zName]!.add(r.toJson());
+      final requestData = r.toJson();
+      final lastIrrigation = lastIrrigationByField[r.fieldID];
+      requestData['DaysSinceLastIrrigation'] = lastIrrigation == null
+          ? maximumIrrigationIntervalDays
+          : DateTime.now().difference(lastIrrigation).inMinutes / 1440.0;
+      zoneMap[zName]!.add(requestData);
     }
 
     final List<Map<String, dynamic>> schedule = [];
     zoneMap.forEach((zName, list) {
       double totalMoist = 0;
       double totalTemp = 0;
+      double totalAreaAcres = 0;
+      double totalPreviousDayRainfall = 0;
+      double totalDaysSinceLastIrrigation = 0;
       for (var item in list) {
         final m = item['SoilMoisture'] ?? item['soil_moisture'] ?? 30.0;
         final t = item['SoilTemperature'] ?? item['soil_temperature'] ?? 29.5;
+        final area = item['AreaAcres'] ?? item['Size'] ?? 2.5;
+        final rain = item['PreviousDayRainfall'] ?? 0.0;
+        final days =
+            item['DaysSinceLastIrrigation'] ?? maximumIrrigationIntervalDays;
         totalMoist += (m is num) ? m.toDouble() : 30.0;
         totalTemp += (t is num) ? t.toDouble() : 29.5;
+        totalAreaAcres += (area is num) ? area.toDouble() : 2.5;
+        totalPreviousDayRainfall += (rain is num) ? rain.toDouble() : 0.0;
+        totalDaysSinceLastIrrigation += (days is num)
+            ? days.toDouble()
+            : maximumIrrigationIntervalDays;
       }
 
       final avgMoist = (totalMoist / list.length).roundToDouble();
       final avgTemp = double.parse((totalTemp / list.length).toStringAsFixed(1));
+      final avgPreviousDayRainfall = totalPreviousDayRainfall / list.length;
+      final avgDaysSinceLastIrrigation =
+          totalDaysSinceLastIrrigation / list.length;
 
-      double zoneWeight = 1.0;
-      final lowerName = zName.toLowerCase();
-      if (lowerName.contains('tail') || lowerName.contains('3')) {
-        zoneWeight = 1.5;
-      } else if (lowerName.contains('28')) {
-        zoneWeight = 1.4;
-      } else if (lowerName.contains('middle') || lowerName.contains('9')) {
-        zoneWeight = 1.2;
-      } else if (lowerName.contains('5')) {
-        zoneWeight = 1.1;
-      }
-
-      // Demand density boost: +1.5 points for each additional field requesting water in this zone
-      final double requestCountBonus = (list.length - 1) * 1.5;
-      final urgencyScore = double.parse((((100.0 - avgMoist) * 0.5) + (zoneWeight * 2.0) + requestCountBonus).toStringAsFixed(1));
-      final targetWaterMm = double.parse((((75.0 - avgMoist) * 0.8) + ((avgTemp - 25.0) * 0.5)).toStringAsFixed(1));
-      final int totalLiters = (targetWaterMm * list.length * 2.5 * 4046.86).round();
+      final urgencyScore = double.parse(
+        calculateUrgencyScore(
+          soilMoisture: avgMoist,
+          temperature: avgTemp,
+          daysSinceLastIrrigation: avgDaysSinceLastIrrigation,
+        ).toStringAsFixed(1),
+      );
+      final int targetWaterLiters = calculateTargetWaterRequirementLiters(
+        soilMoisture: avgMoist,
+        temperature: avgTemp,
+        previousDayRainfall: avgPreviousDayRainfall,
+        areaAcres: totalAreaAcres,
+      ).round();
 
       schedule.add({
         'ZoneName': zName,
         'TotalFields': list.length,
-        'TotalAreaAcres': double.parse((list.length * 2.5).toStringAsFixed(1)),
+        'TotalAreaAcres': double.parse(totalAreaAcres.toStringAsFixed(1)),
         'AvgSoilMoisture': avgMoist,
         'AvgSoilTemp': avgTemp,
+        'AvgDaysSinceLastIrrigation': avgDaysSinceLastIrrigation,
         'urgency_score': urgencyScore,
-        'target_water_req_mm': targetWaterMm < 0 ? 0.0 : targetWaterMm,
-        'PredictedVolume': totalLiters,
-        'RainfallForecast': 0.0,
+        'target_water_req_liters': targetWaterLiters,
+        'PredictedVolume': targetWaterLiters,
+        'PreviousDayRainfall': avgPreviousDayRainfall,
         'Date': 'Today',
-        'Explanation': '[Zone Consolidated] ${list.length} active field requests grouped into $zName. Zone Avg Moisture: ${avgMoist}%, Zone Avg Temp: ${avgTemp}°C. Urgency Score: $urgencyScore (Formula 1). Target Water Needed: ${targetWaterMm} mm (Formula 2).',
+        'Explanation': '[Zone Consolidated] ${list.length} active field requests grouped into $zName. Zone Avg Moisture: $avgMoist%, Zone Avg Temp: $avgTemp°C, Avg Days Since Irrigation: ${avgDaysSinceLastIrrigation.toStringAsFixed(1)}, Previous-day Rainfall: ${avgPreviousDayRainfall.toStringAsFixed(1)} mm, Area: ${totalAreaAcres.toStringAsFixed(1)} acres. Urgency Score: $urgencyScore (Formula 1). Target Water Needed: $targetWaterLiters L (Formula 2).',
       });
     });
 

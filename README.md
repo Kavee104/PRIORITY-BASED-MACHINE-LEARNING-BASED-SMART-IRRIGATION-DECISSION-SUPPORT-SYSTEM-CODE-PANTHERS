@@ -151,3 +151,18 @@ needs the LAN API URL supplied with `--dart-define`; the emulator default is
 The physical sensor mode is a placeholder. `readSoilMoisture()` and
 `readTemperature()` must be implemented for the actual hardware; no sensor
 library or pin mapping has been assumed.
+
+For help getting started with Flutter development, view the
+[online documentation](https://docs.flutter.dev/), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.
+
+## Backend configuration
+
+Configure credentials with environment variables before starting `app.py`:
+
+- `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`
+- `ADMIN_KEY`, `ADMIN_PASSWORD`, `OPENWEATHER_API_KEY`
+
+The local `users.json` account store is generated at runtime and is excluded
+from Git to prevent account data and password hashes from being published.

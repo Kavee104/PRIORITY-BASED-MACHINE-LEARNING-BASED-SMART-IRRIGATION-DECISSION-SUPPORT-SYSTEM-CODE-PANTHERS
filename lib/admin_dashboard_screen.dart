@@ -2,16 +2,15 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
-import 'csv_download_io.dart'
-    if (dart.library.html) 'csv_download_web.dart' as csv_download;
 import 'app_config.dart';
 import 'app_theme.dart';
 import 'auth_service.dart';
+import 'csv_export.dart';
 import 'main.dart';
 import 'user_management_screen.dart';
 import 'priority_schedule_screen.dart';
+import 'water_requirement.dart';
 import 'water_release_prediction_card.dart';
-
 
 class AdminDashboardScreen extends StatefulWidget {
   final String adminName;
@@ -105,9 +104,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<void> _fetchStats() async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/admin/stats?admin_key=$_adminKey'),
-      ).timeout(const Duration(seconds: 3));
+      final response = await http
+          .get(Uri.parse('$baseUrl/admin/stats?admin_key=$_adminKey'))
+          .timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (mounted) _stats = data['stats'] ?? {};
@@ -117,13 +116,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (mounted) {
       final combinedUsers = _getCombinedUsers();
       final allRequests = _getCombinedRequests();
-      final pendingCount = allRequests.where((r) => r['Status'] == 'Pending').length;
-      final approvedCount = allRequests.where((r) => r['Status'] == 'Approved').length;
-      final rejectedCount = allRequests.where((r) => r['Status'] == 'Rejected').length;
+      final pendingCount = allRequests
+          .where((r) => r['Status'] == 'Pending')
+          .length;
+      final approvedCount = allRequests
+          .where((r) => r['Status'] == 'Approved')
+          .length;
+      final rejectedCount = allRequests
+          .where((r) => r['Status'] == 'Rejected')
+          .length;
 
-      final farmerCount = combinedUsers.where((u) => u['role'].toString().toLowerCase() == 'farmer').length;
-      final officerCount = combinedUsers.where((u) => u['role'].toString().toLowerCase() == 'officer').length;
-      final adminCount = combinedUsers.where((u) => u['role'].toString().toLowerCase() == 'admin').length;
+      final farmerCount = combinedUsers
+          .where((u) => u['role'].toString().toLowerCase() == 'farmer')
+          .length;
+      final officerCount = combinedUsers
+          .where((u) => u['role'].toString().toLowerCase() == 'officer')
+          .length;
+      final adminCount = combinedUsers
+          .where((u) => u['role'].toString().toLowerCase() == 'admin')
+          .length;
 
       setState(() {
         _stats = {
@@ -141,7 +152,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   List<dynamic> _getCombinedRequests() {
-    final localReqs = AuthService.instance.getWaterRequests().map((r) => r.toJson()).toList();
+    final localReqs = AuthService.instance
+        .getWaterRequests()
+        .map((r) => r.toJson())
+        .toList();
     final combinedMap = <int, dynamic>{};
     for (var r in localReqs) {
       combinedMap[r['RequestID'] as int] = r;
@@ -154,7 +168,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final timeA = (a['RequestTime'] ?? '').toString();
       final timeB = (b['RequestTime'] ?? '').toString();
       if (timeA.isNotEmpty && timeB.isNotEmpty) {
-        final cmp = timeB.compareTo(timeA); // Compare timestamps descending (newest time at top)
+        final cmp = timeB.compareTo(
+          timeA,
+        ); // Compare timestamps descending (newest time at top)
         if (cmp != 0) return cmp;
       }
       final idA = (a['RequestID'] ?? 0) as int;
@@ -168,7 +184,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (_waterRequests.isEmpty) return;
 
     final StringBuffer csv = StringBuffer();
-    csv.writeln("Req #,Farmer,Zone / Field,Soil Moisture (%),Soil Temp (C),Target Water Req (mm),Requested At,Status");
+    csv.writeln(
+      "Req #,Farmer,Zone / Field,Soil Moisture (%),Soil Temp (C),Previous-day Rainfall (mm),Area (acres),Target Water Req (L),Requested At,Status",
+    );
 
     for (var r in _waterRequests) {
       final reqId = r['RequestID'] ?? 0;
@@ -176,23 +194,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final zone = r['ZoneName'] ?? '';
       final moist = r['SoilMoisture'] ?? r['soil_moisture'];
       final temp = r['SoilTemperature'] ?? r['soil_temperature'];
-      final targetMm = moist is num && temp is num
-          ? (((75.0 - moist) * 0.8) + ((temp - 25.0) * 0.5)).toStringAsFixed(2)
-          : '';
+      final rain = r['PreviousDayRainfall'] ?? 0.0;
+      final area = r['AreaAcres'] ?? r['Size'] ?? 2.5;
+      final double? targetLiters = moist is num && temp is num
+          ? calculateTargetWaterRequirementLiters(
+              soilMoisture: moist.toDouble(),
+              temperature: temp.toDouble(),
+              previousDayRainfall: rain is num ? rain.toDouble() : 0.0,
+              areaAcres: area is num ? area.toDouble() : 2.5,
+            )
+          : null;
       final reqTime = r['RequestTime'] ?? '';
       final status = r['Status'] ?? 'Pending';
 
-      csv.writeln('"$reqId","$farmer","$zone","${moist ?? ''}","${temp ?? ''}","$targetMm","$reqTime","$status"');
+      csv.writeln(
+        '"$reqId","$farmer","$zone","${moist ?? ''}","${temp ?? ''}","$rain","$area","${targetLiters?.toStringAsFixed(0) ?? ''}","$reqTime","$status"',
+      );
     }
 
     try {
-      final bytes = utf8.encode(csv.toString());
-      final filename = "smart_irrigation_requests_${DateTime.now().millisecondsSinceEpoch}.csv";
-      final savedLocation = csv_download.saveCsv(bytes, filename);
+      final filename =
+          "smart_irrigation_requests_${DateTime.now().millisecondsSinceEpoch}.csv";
+      final downloaded = downloadCsv(csv.toString(), filename);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Saved CSV report to $savedLocation"),
+          content: Text(
+            downloaded
+                ? "Downloaded $filename to your Downloads folder!"
+                : "CSV download is currently available in the web app.",
+          ),
           backgroundColor: AppColors.primaryGreen,
         ),
       );
@@ -215,7 +246,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 26),
+            Icon(
+              Icons.warning_amber_rounded,
+              color: AppColors.danger,
+              size: 26,
+            ),
             SizedBox(width: 10),
             Text("Clear All Requests?"),
           ],
@@ -237,12 +272,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               });
               try {
                 await http.post(
-                  Uri.parse('$baseUrl/admin/clear-requests?admin_key=$_adminKey'),
+                  Uri.parse(
+                    '$baseUrl/admin/clear-requests?admin_key=$_adminKey',
+                  ),
                 );
               } catch (_) {}
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Water requests table cleared successfully.")),
+                  const SnackBar(
+                    content: Text("Water requests table cleared successfully."),
+                  ),
                 );
               }
             },
@@ -289,9 +328,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<void> _fetchWaterRequests() async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/admin/water-requests?admin_key=$_adminKey'),
-      ).timeout(const Duration(seconds: 3));
+      final response = await http
+          .get(Uri.parse('$baseUrl/admin/water-requests?admin_key=$_adminKey'))
+          .timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (mounted) _waterRequests = data['requests'] ?? [];
@@ -310,9 +349,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<void> _fetchAuditLog() async {
     List<dynamic> remoteLog = [];
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/admin/audit-log?admin_key=$_adminKey'),
-      ).timeout(const Duration(seconds: 3));
+      final response = await http
+          .get(Uri.parse('$baseUrl/admin/audit-log?admin_key=$_adminKey'))
+          .timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         remoteLog = data['log'] ?? [];
@@ -330,9 +369,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<void> _fetchUsers() async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/admin/users?admin_key=$_adminKey'),
-      ).timeout(const Duration(seconds: 3));
+      final response = await http
+          .get(Uri.parse('$baseUrl/admin/users?admin_key=$_adminKey'))
+          .timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (mounted) setState(() => _apiUsers = data['users'] ?? []);
@@ -353,9 +392,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     setState(() => _actionInProgressId = requestId);
     AuthService.instance.approveRequest(requestId);
     try {
-      await http.post(
-        Uri.parse('$baseUrl/admin/water-requests/$requestId/approve?admin_key=$_adminKey'),
-      ).timeout(const Duration(seconds: 3));
+      await http
+          .post(
+            Uri.parse(
+              '$baseUrl/admin/water-requests/$requestId/approve?admin_key=$_adminKey',
+            ),
+          )
+          .timeout(const Duration(seconds: 3));
     } catch (_) {}
 
     await _loadAllData();
@@ -369,9 +412,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     setState(() => _actionInProgressId = requestId);
     AuthService.instance.rejectRequest(requestId);
     try {
-      await http.post(
-        Uri.parse('$baseUrl/admin/water-requests/$requestId/reject?admin_key=$_adminKey'),
-      ).timeout(const Duration(seconds: 3));
+      await http
+          .post(
+            Uri.parse(
+              '$baseUrl/admin/water-requests/$requestId/reject?admin_key=$_adminKey',
+            ),
+          )
+          .timeout(const Duration(seconds: 3));
     } catch (_) {}
 
     await _loadAllData();
@@ -388,7 +435,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           children: [
             const Icon(Icons.info_outline, color: Colors.white, size: 20),
             const SizedBox(width: 10),
-            Expanded(child: Text(message, style: const TextStyle(fontWeight: FontWeight.bold))),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
           ],
         ),
         backgroundColor: color ?? AppColors.primaryDarkGreen,
@@ -402,14 +454,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final navItems = [
       {'icon': Icons.admin_panel_settings_rounded, 'title': 'Dashboard'},
       {'icon': Icons.list_alt_rounded, 'title': 'Priority Schedule'},
-      {'icon': Icons.supervised_user_circle_rounded, 'title': 'User Management'},
+      {
+        'icon': Icons.supervised_user_circle_rounded,
+        'title': 'User Management',
+      },
     ];
 
     return Container(
       width: 260,
-      decoration: const BoxDecoration(
-        color: AppColors.primaryDarkGreen,
-      ),
+      decoration: const BoxDecoration(color: AppColors.primaryDarkGreen),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -423,7 +476,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: const Icon(Icons.shield_rounded, color: Colors.white, size: 24),
+                  child: const Icon(
+                    Icons.shield_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 const Column(
@@ -431,11 +488,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   children: [
                     Text(
                       "Smart Irrigation",
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     Text(
                       "ADMIN CONTROL",
-                      style: TextStyle(color: AppColors.lightGreen, fontSize: 10, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: AppColors.lightGreen,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -454,11 +519,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 return Container(
                   margin: const EdgeInsets.only(bottom: 6),
                   decoration: BoxDecoration(
-                    color: isSelected ? Colors.white.withValues(alpha: 0.2) : Colors.transparent,
+                    color: isSelected
+                        ? Colors.white.withValues(alpha: 0.2)
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 2,
+                    ),
                     leading: Icon(
                       item['icon'] as IconData,
                       color: isSelected ? Colors.white : Colors.white70,
@@ -468,15 +538,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       title,
                       style: TextStyle(
                         color: isSelected ? Colors.white : Colors.white70,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.w500,
                         fontSize: 14,
                       ),
                     ),
                     onTap: () {
                       if (title == 'Priority Schedule') {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const PriorityScheduleScreen()));
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PriorityScheduleScreen(),
+                          ),
+                        );
                       } else if (title == 'User Management') {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const UserManagementScreen()));
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const UserManagementScreen(),
+                          ),
+                        );
                       } else {
                         setState(() => _selectedNavItem = title);
                       }
@@ -500,7 +582,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 const CircleAvatar(
                   backgroundColor: Colors.white,
                   radius: 18,
-                  child: Icon(Icons.admin_panel_settings_rounded, color: AppColors.primaryDarkGreen, size: 20),
+                  child: Icon(
+                    Icons.admin_panel_settings_rounded,
+                    color: AppColors.primaryDarkGreen,
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -511,21 +597,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         widget.adminName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
                       const Text(
                         "SYSTEM ADMIN",
-                        style: TextStyle(color: AppColors.lightGreen, fontSize: 10, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: AppColors.lightGreen,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.logout_rounded, color: Colors.white70, size: 18),
+                  icon: const Icon(
+                    Icons.logout_rounded,
+                    color: Colors.white70,
+                    size: 18,
+                  ),
                   onPressed: () {
                     Navigator.pushAndRemoveUntil(
                       context,
-                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                      MaterialPageRoute(
+                        builder: (context) => const LoginScreen(),
+                      ),
                       (route) => false,
                     );
                   },
@@ -540,7 +640,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width >= 900;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isDesktop = screenWidth >= 900;
+    final isCompact = screenWidth < 600;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -548,6 +650,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
+        toolbarHeight: isCompact ? 64 : 72,
         automaticallyImplyLeading: !isDesktop,
         title: Row(
           children: [
@@ -558,7 +661,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   color: AppColors.lightGreen,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.shield_rounded, color: AppColors.primaryDarkGreen, size: 20),
+                child: const Icon(
+                  Icons.shield_rounded,
+                  color: AppColors.primaryDarkGreen,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
             ],
@@ -570,13 +677,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     "Admin Control Center",
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primaryText,
+                      fontSize: 16,
+                    ),
                   ),
                   Text(
                     "Real-time System Administration & Water Approval",
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: AppColors.secondaryText, fontSize: 11),
+                    style: TextStyle(
+                      color: AppColors.secondaryText,
+                      fontSize: 11,
+                    ),
                   ),
                 ],
               ),
@@ -586,12 +700,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: AppColors.secondaryText),
+            icon: const Icon(
+              Icons.refresh_rounded,
+              color: AppColors.secondaryText,
+            ),
             tooltip: "Refresh Data",
             onPressed: _loadAllData,
           ),
           IconButton(
-            icon: const Icon(Icons.logout_rounded, color: AppColors.secondaryText),
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: AppColors.secondaryText,
+            ),
             tooltip: "Logout",
             onPressed: () {
               Navigator.pushAndRemoveUntil(
@@ -601,7 +721,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               );
             },
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: isCompact ? 0 : 8),
         ],
       ),
       body: Row(
@@ -610,25 +730,41 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           Expanded(
             child: SafeArea(
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator(color: AppColors.primaryGreen))
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: AppColors.primaryGreen,
+                      ),
+                    )
                   : RefreshIndicator(
                       color: AppColors.primaryGreen,
                       onRefresh: _loadAllData,
                       child: ListView(
-                        padding: const EdgeInsets.all(24),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isCompact ? 16 : 24,
+                          vertical: isCompact ? 16 : 24,
+                        ),
                         children: [
-                          _buildHeroBanner(),
-                          const SizedBox(height: 28),
-                          _buildMetricsSection(),
-                          const SizedBox(height: 32),
-                           const WaterReleasePredictionCard(),
-                           const SizedBox(height: 32),
-                           _buildZoneSensorsSection(),
-                           const SizedBox(height: 32),
-                           _buildWaterRequestsSection(),
-
-                          const SizedBox(height: 32),
-                          _buildAuditTrailSection(),
+                          Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 1400),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _buildHeroBanner(),
+                                  SizedBox(height: isCompact ? 22 : 28),
+                                  _buildMetricsSection(),
+                                  SizedBox(height: isCompact ? 24 : 32),
+                                  const WaterReleasePredictionCard(),
+                                  SizedBox(height: isCompact ? 24 : 32),
+                                  _buildZoneSensorsSection(),
+                                  SizedBox(height: isCompact ? 24 : 32),
+                                  _buildWaterRequestsSection(),
+                                  SizedBox(height: isCompact ? 24 : 32),
+                                  _buildAuditTrailSection(),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -645,7 +781,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Widget _buildHeroBanner() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(28),
+      padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 600 ? 20 : 28),
       decoration: BoxDecoration(
         gradient: AppColors.heroGradient,
         borderRadius: BorderRadius.circular(24),
@@ -704,7 +840,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           const SizedBox(height: 6),
           Text(
             'Real-time water request approvals, user management, and system audit trail.',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14),
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.85),
+              fontSize: 14,
+            ),
           ),
         ],
       ),
@@ -723,26 +862,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
     final farmerCnt = _stats['farmers'] ?? 0;
     final adminCnt = _stats['admins'] ?? 0;
-    final userSubtitle = "${farmerCnt == 1 ? '1 Farmer' : '$farmerCnt Farmers'}, ${adminCnt == 1 ? '1 Admin' : '$adminCnt Admins'}";
+    final userSubtitle =
+        "${farmerCnt == 1 ? '1 Farmer' : '$farmerCnt Farmers'}, ${adminCnt == 1 ? '1 Admin' : '$adminCnt Admins'}";
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
           "System Metrics (Live)",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppColors.primaryText,
+          ),
         ),
         const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
-            final colCount = constraints.maxWidth > 900 ? 5 : (constraints.maxWidth > 600 ? 3 : 2);
+            final colCount = constraints.maxWidth >= 1100
+                ? 5
+                : constraints.maxWidth >= 700
+                ? 3
+                : constraints.maxWidth >= 320
+                ? 2
+                : 1;
             return GridView.count(
               crossAxisCount: colCount,
               crossAxisSpacing: 14,
               mainAxisSpacing: 14,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 1.3,
+              mainAxisExtent: constraints.maxWidth < 700 ? 148 : 142,
               children: [
                 _MetricStatCard(
                   icon: Icons.people_rounded,
@@ -758,7 +908,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   title: "Pending Requests",
                   value: "$pendingReqs",
                   badgeText: pendingReqs > 0 ? "Action Needed" : "Clear",
-                  badgeColor: pendingReqs > 0 ? AppColors.warning : AppColors.primaryGreen,
+                  badgeColor: pendingReqs > 0
+                      ? AppColors.warning
+                      : AppColors.primaryGreen,
                   subtitle: "Awaiting approval",
                   iconColor: AppColors.warning,
                 ),
@@ -776,7 +928,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   title: "Rejected",
                   value: "$rejectedReqs",
                   badgeText: rejectedReqs > 0 ? "Declined" : "None",
-                  badgeColor: rejectedReqs > 0 ? AppColors.danger : AppColors.primaryGreen,
+                  badgeColor: rejectedReqs > 0
+                      ? AppColors.danger
+                      : AppColors.primaryGreen,
                   subtitle: "Requests denied",
                   iconColor: AppColors.danger,
                 ),
@@ -796,8 +950,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ],
     );
   }
-
-
 
   // -------------------------------------------------------------------------
   // Water Requests with Approve/Reject Actions
@@ -847,57 +999,97 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildWaterRequestsSection() {
+    final requestActions = <Widget>[
+      if (_waterRequests.isNotEmpty) ...[
+        ElevatedButton.icon(
+          onPressed: _exportCsvReport,
+          icon: const Icon(Icons.download_rounded, size: 15),
+          label: const Text("Export CSV", style: TextStyle(fontSize: 12)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primaryGreen,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            minimumSize: const Size(0, 38),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+        OutlinedButton.icon(
+          onPressed: _clearWaterRequests,
+          icon: const Icon(
+            Icons.delete_outline_rounded,
+            size: 15,
+            color: AppColors.danger,
+          ),
+          label: const Text(
+            "Clear Table",
+            style: TextStyle(fontSize: 12, color: AppColors.danger),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: AppColors.danger),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            minimumSize: const Size(0, 38),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      ],
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.lightGreen,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          "${_waterRequests.length} Requests",
+          style: const TextStyle(
+            color: AppColors.primaryDarkGreen,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const title = Text(
               "Farmer Water Requests",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
-            ),
-            Row(
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primaryText,
+              ),
+            );
+
+            final actions = Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: requestActions,
+            );
+
+            if (constraints.maxWidth < 720) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [title, const SizedBox(height: 12), actions],
+              );
+            }
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                if (_waterRequests.isNotEmpty) ...[
-                  ElevatedButton.icon(
-                    onPressed: _exportCsvReport,
-                    icon: const Icon(Icons.download_rounded, size: 15),
-                    label: const Text("Export CSV", style: TextStyle(fontSize: 12)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primaryGreen,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _clearWaterRequests,
-                    icon: const Icon(Icons.delete_outline_rounded, size: 15, color: AppColors.danger),
-                    label: const Text("Clear Table", style: TextStyle(fontSize: 12, color: AppColors.danger)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.danger),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.lightGreen,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    "${_waterRequests.length} Requests",
-                    style: const TextStyle(color: AppColors.primaryDarkGreen, fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                ),
+                title,
+                const SizedBox(width: 16),
+                Flexible(child: actions),
               ],
-            ),
-          ],
+            );
+          },
         ),
         const SizedBox(height: 14),
 
@@ -912,11 +1104,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
             child: const Column(
               children: [
-                Icon(Icons.water_drop_outlined, size: 48, color: AppColors.mutedText),
+                Icon(
+                  Icons.water_drop_outlined,
+                  size: 48,
+                  color: AppColors.mutedText,
+                ),
                 SizedBox(height: 12),
                 Text(
                   "No water requests yet",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.secondaryText),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.secondaryText,
+                  ),
                 ),
                 SizedBox(height: 4),
                 Text(
@@ -947,17 +1147,91 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
-                  headingRowColor: WidgetStateProperty.all(AppColors.inputBackground),
+                  headingRowColor: WidgetStateProperty.all(
+                    AppColors.inputBackground,
+                  ),
                   columns: const [
-                    DataColumn(label: Text("Req #", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                    DataColumn(label: Text("Farmer", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                    DataColumn(label: Text("Zone / Field", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                    DataColumn(label: Text("Soil Moisture (Sensor)", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                    DataColumn(label: Text("Soil Temp (Sensor)", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                    DataColumn(label: Text("Target Water Req (F2)", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                    DataColumn(label: Text("Requested At", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                    DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
-                    DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText))),
+                    DataColumn(
+                      label: Text(
+                        "Req #",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "Farmer",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "Zone / Field",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "Soil Moisture (Sensor)",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "Soil Temp (Sensor)",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "Target Water Req (L)",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "Requested At",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "Status",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "Actions",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                    ),
                   ],
                   rows: _waterRequests.map<DataRow>((r) {
                     final status = (r['Status'] ?? 'Pending') as String;
@@ -978,7 +1252,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     }
 
                     final rawZone = "${r['ZoneName'] ?? ''}";
-                    final fieldLabel = (!rawZone.contains("Field #") && r['FieldID'] != null)
+                    final fieldLabel =
+                        (!rawZone.contains("Field #") && r['FieldID'] != null)
                         ? "$rawZone (Field #${r['FieldID']})"
                         : rawZone;
 
@@ -989,27 +1264,49 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     final tempNum = r['SoilTemperature'] ?? r['soil_temperature'];
                     final double? tempVal = (tempNum is num) ? tempNum.toDouble() : null;
 
-                    // Formula 2: Target Water Requirement (mm)
-                    final double? targetWaterMm = moistVal != null && tempVal != null
-                        ? ((75.0 - moistVal) * 0.8) + ((tempVal - 25.0) * 0.5) : null;
-                    final double? finalTargetMm = targetWaterMm == null ? null
-                        : targetWaterMm < 0 ? 0.0 : targetWaterMm;
+                    final rainNum = r['PreviousDayRainfall'] ?? 0.0;
+                    final areaNum = r['AreaAcres'] ?? r['Size'] ?? 2.5;
+                    final double? targetWaterLiters =
+                        moistVal != null && tempVal != null
+                        ? calculateTargetWaterRequirementLiters(
+                          soilMoisture: moistVal.toDouble(),
+                          temperature: tempVal,
+                          previousDayRainfall: rainNum is num
+                              ? rainNum.toDouble()
+                              : 0.0,
+                          areaAcres: areaNum is num
+                              ? areaNum.toDouble()
+                              : 2.5,
+                        )
+                        : null;
 
                     return DataRow(
                       cells: [
-                        DataCell(Text("#$reqId", style: const TextStyle(fontWeight: FontWeight.bold))),
+                        DataCell(
+                          Text(
+                            "#$reqId",
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
                         DataCell(Text("${r['farmer_name'] ?? 'Unknown'}")),
                         DataCell(Text('$fieldLabel\n${r['DeviceID'] ?? 'No sensor snapshot'}')),
                         DataCell(
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: isDryDemand
                                   ? Colors.orange.withValues(alpha: 0.12)
                                   : AppColors.teal.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: (isDryDemand ? Colors.orange : AppColors.teal).withValues(alpha: 0.3),
+                                color:
+                                    (isDryDemand
+                                            ? Colors.orange
+                                            : AppColors.teal)
+                                        .withValues(alpha: 0.3),
                               ),
                             ),
                             child: Row(
@@ -1018,7 +1315,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 Icon(
                                   Icons.water_drop_rounded,
                                   size: 14,
-                                  color: isDryDemand ? Colors.orange.shade800 : AppColors.teal,
+                                  color: isDryDemand
+                                      ? Colors.orange.shade800
+                                      : AppColors.teal,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
@@ -1026,7 +1325,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 11,
-                                    color: isDryDemand ? Colors.orange.shade900 : AppColors.primaryDarkGreen,
+                                    color: isDryDemand
+                                        ? Colors.orange.shade900
+                                        : AppColors.primaryDarkGreen,
                                   ),
                                 ),
                               ],
@@ -1035,7 +1336,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                         DataCell(
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.deepOrange.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(12),
@@ -1066,7 +1370,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                         DataCell(
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.blue.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(12),
@@ -1084,7 +1391,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  finalTargetMm == null ? '--' : "${finalTargetMm.toStringAsFixed(1)} mm",
+                                  targetWaterLiters == null
+                                      ? '--'
+                                      : "${targetWaterLiters.toStringAsFixed(0)} L",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 11,
@@ -1098,14 +1407,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         DataCell(Text("${r['RequestTime'] ?? ''}")),
                         DataCell(
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: sBg,
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
                               status,
-                              style: TextStyle(color: sColor, fontWeight: FontWeight.bold, fontSize: 11),
+                              style: TextStyle(
+                                color: sColor,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                              ),
                             ),
                           ),
                         ),
@@ -1114,32 +1430,45 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               ? const SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryGreen),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.primaryGreen,
+                                  ),
                                 )
                               : isPending
-                                  ? Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(Icons.check_circle_rounded, color: AppColors.primaryGreen, size: 22),
-                                          tooltip: "Approve",
-                                          onPressed: () => _approveRequest(reqId),
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(Icons.cancel_rounded, color: AppColors.danger, size: 22),
-                                          tooltip: "Reject",
-                                          onPressed: () => _rejectRequest(reqId),
-                                        ),
-                                      ],
-                                    )
-                                  : Text(
-                                      isApproved ? "✅ Done" : "❌ Denied",
-                                      style: TextStyle(
-                                        color: isApproved ? AppColors.primaryGreen : AppColors.danger,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.check_circle_rounded,
+                                        color: AppColors.primaryGreen,
+                                        size: 22,
                                       ),
+                                      tooltip: "Approve",
+                                      onPressed: () => _approveRequest(reqId),
                                     ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.cancel_rounded,
+                                        color: AppColors.danger,
+                                        size: 22,
+                                      ),
+                                      tooltip: "Reject",
+                                      onPressed: () => _rejectRequest(reqId),
+                                    ),
+                                  ],
+                                )
+                              : Text(
+                                  isApproved ? "✅ Done" : "❌ Denied",
+                                  style: TextStyle(
+                                    color: isApproved
+                                        ? AppColors.primaryGreen
+                                        : AppColors.danger,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
                         ),
                       ],
                     );
@@ -1151,8 +1480,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ],
     );
   }
-
-
 
   // -------------------------------------------------------------------------
   // Audit Trail Section
@@ -1166,7 +1493,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           children: [
             const Text(
               "System Audit Trail",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primaryText,
+              ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -1176,7 +1507,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
               child: Text(
                 "${_auditLog.length} Events",
-                style: const TextStyle(color: AppColors.primaryDarkGreen, fontWeight: FontWeight.bold, fontSize: 12),
+                style: const TextStyle(
+                  color: AppColors.primaryDarkGreen,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
               ),
             ),
           ],
@@ -1194,11 +1529,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
             child: const Column(
               children: [
-                Icon(Icons.history_rounded, size: 48, color: AppColors.mutedText),
+                Icon(
+                  Icons.history_rounded,
+                  size: 48,
+                  color: AppColors.mutedText,
+                ),
                 SizedBox(height: 12),
                 Text(
                   "No audit events recorded yet",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.secondaryText),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.secondaryText,
+                  ),
                 ),
               ],
             ),
@@ -1261,9 +1604,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   }
 
                   return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                     decoration: const BoxDecoration(
-                      border: Border(bottom: BorderSide(color: AppColors.border, width: 0.5)),
+                      border: Border(
+                        bottom: BorderSide(color: AppColors.border, width: 0.5),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -1282,25 +1630,39 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             children: [
                               Text(
                                 "${entry['details'] ?? ''}",
-                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.primaryText),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                  color: AppColors.primaryText,
+                                ),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 "by ${entry['user'] ?? 'system'} • ${entry['timestamp'] ?? ''}",
-                                style: const TextStyle(fontSize: 11, color: AppColors.mutedText),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.mutedText,
+                                ),
                               ),
                             ],
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: iconColor.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
                             action.replaceAll('_', ' '),
-                            style: TextStyle(color: iconColor, fontSize: 9, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              color: iconColor,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
@@ -1337,7 +1699,7 @@ class _MetricStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -1372,7 +1734,11 @@ class _MetricStatCard extends StatelessWidget {
                 ),
                 child: Text(
                   badgeText,
-                  style: TextStyle(color: badgeColor, fontSize: 10, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: badgeColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -1382,14 +1748,22 @@ class _MetricStatCard extends StatelessWidget {
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12, color: AppColors.secondaryText, fontWeight: FontWeight.w500),
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.secondaryText,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryText,
+            ),
           ),
           const SizedBox(height: 2),
           Text(

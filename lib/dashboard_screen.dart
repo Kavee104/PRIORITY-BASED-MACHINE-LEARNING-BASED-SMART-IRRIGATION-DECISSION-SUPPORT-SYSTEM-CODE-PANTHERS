@@ -207,10 +207,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> requestWater(int fieldId) async {
     // Find zone name
     String zoneName = "Zone (Field #$fieldId)";
+    double areaAcres = 2.5;
     for (var f in fields) {
       final fid = int.tryParse("${f['FieldID']}");
       if (fid == fieldId) {
         zoneName = "Zone ${f['ZoneNo']} (Field #$fieldId)";
+        areaAcres = double.tryParse("${f['Size']}") ?? 2.5;
         break;
       }
     }
@@ -226,6 +228,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         body: jsonEncode({
           "farmer_id": widget.farmerId,
           "field_id": fieldId,
+          "area_acres": areaAcres,
         }),
       ).timeout(const Duration(seconds: 3));
 
@@ -242,6 +245,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         fieldId: fieldId,
         zoneName: zoneName,
         farmerName: _currentFarmerName,
+        areaAcres: areaAcres,
       );
       _showMessage("Water request saved locally; backend sync is pending", Colors.orangeAccent);
     }

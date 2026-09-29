@@ -9,6 +9,7 @@ import smtplib
 import time
 import math
 import secrets
+import datetime
 from email.message import EmailMessage
 from flask import Flask, jsonify, request
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -383,6 +384,7 @@ def _reset_user_password(role):
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
 LATITUDE = 8.3114
 LONGITUDE = 80.4037
+_previous_day_rainfall_cache = {'date': None, 'value': 0.0}
 
 
 def get_weather_forecast():
@@ -403,6 +405,38 @@ def get_weather_forecast():
   except Exception as e:
     print("Weather API Exception:", e)
     return 0.0
+
+
+def get_previous_day_rainfall():
+  """Previous calendar day's rainfall at Mahakandarawa (mm)."""
+  previous_date = datetime.date.today() - datetime.timedelta(days=1)
+  date_key = previous_date.isoformat()
+  if _previous_day_rainfall_cache['date'] == date_key:
+    return _previous_day_rainfall_cache['value']
+
+  try:
+    response = requests.get(
+      'https://api.open-meteo.com/v1/forecast',
+      params={
+        'latitude': LATITUDE,
+        'longitude': LONGITUDE,
+        'daily': 'precipitation_sum',
+        'timezone': 'Asia/Colombo',
+        'start_date': date_key,
+        'end_date': date_key,
+      },
+      timeout=2,
+    )
+    if response.status_code == 200:
+      rainfall = response.json().get('daily', {}).get('precipitation_sum', [])
+      if rainfall and rainfall[0] is not None:
+        value = round(max(0.0, float(rainfall[0])), 2)
+        _previous_day_rainfall_cache.update(date=date_key, value=value)
+        return value
+  except Exception as e:
+    print("Previous-day rainfall API exception:", e)
+  _previous_day_rainfall_cache.update(date=date_key, value=0.0)
+  return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -881,21 +915,39 @@ def reset_password_officer():
   return _reset_user_password('officer')
 
 
-def calculate_urgency_score(soil_moisture, zone_name, forecast_rain=0.0):
-  """Formula 1: Urgency Score = (100 - SoilMoisture) * 0.5 + (ZoneWeight * 2.0) - (ForecastRain * 0.3)"""
-  zone_str = str(zone_name or '').lower()
-  zone_weight = 1.5 if 'tail' in zone_str else (1.2 if 'middle' in zone_str else 1.0)
-  score = ((100.0 - float(soil_moisture)) * 0.5) + (zone_weight * 2.0) - (float(forecast_rain) * 0.3)
-  return round(max(0.0, score), 2)
-def calculate_target_water_req(soil_moisture, temperature=29.5, forecast_rain=0.0):
-  """Formula 2: Target Water Requirement (mm) = (75 - SoilMoisture) * 0.8 + (Temperature - 25) * 0.5 - (ForecastRain * 0.4)"""
-  water_req = ((75.0 - float(soil_moisture)) * 0.8) + ((float(temperature) - 25.0) * 0.5) - (float(forecast_rain) * 0.4)
-  return round(max(0.0, water_req), 2)
+def calculate_urgency_score(soil_moisture, temperature=29.5,
+                            days_since_last_irrigation=10.0):
+  """Urgency = 100 * (0.5Si + 0.3Ti + 0.2Di), clamped to 0..100."""
+  soil_factor = (85.0 - float(soil_moisture)) / (85.0 - 40.0)
+  temperature_factor = (float(temperature) - 25.0) / (30.0 - 25.0)
+  irrigation_interval_factor = float(days_since_last_irrigation) / 10.0
+
+  soil_factor = min(1.0, max(0.0, soil_factor))
+  temperature_factor = min(1.0, max(0.0, temperature_factor))
+  irrigation_interval_factor = min(1.0, max(0.0, irrigation_interval_factor))
+
+  score = 100.0 * (
+    (0.5 * soil_factor)
+    + (0.3 * temperature_factor)
+    + (0.2 * irrigation_interval_factor)
+  )
+  return round(score, 2)
+def calculate_target_water_req(soil_moisture, temperature=29.5,
+                               previous_day_rainfall=0.0, area_acres=1.0):
+  """Formula 2: Vi = max(0, (85-Mi)+(Ti-25)-(R*0.1))*Ai*4047 litres."""
+  adjusted_depth = (
+    (85.0 - float(soil_moisture))
+    + (float(temperature) - 25.0)
+    - (float(previous_day_rainfall) * 0.1)
+  )
+  target_liters = max(0.0, adjusted_depth) * max(0.0, float(area_acres)) * 4047.0
+  return round(target_liters, 2)
 
 
 @app.route('/priority-schedule', methods=['GET'])
 def get_priority_schedule():
   forecast_rain = get_weather_forecast()
+  previous_day_rainfall = get_previous_day_rainfall()
   reservoir_water_level = 14.5
 
   # Dynamic prediction release status evaluation
@@ -921,6 +973,24 @@ def get_priority_schedule():
         return part
     return raw_str or 'Zone 1'
 
+  last_irrigation_by_field = {}
+  for historical_request in water_requests:
+    if str(historical_request.get('Status', '')).lower() != 'approved':
+      continue
+    try:
+      field_key = (
+        int(historical_request.get('farmer_id')),
+        int(historical_request.get('FieldID')),
+      )
+      irrigation_time = datetime.datetime.fromisoformat(
+        str(historical_request.get('RequestTime')),
+      )
+      previous_time = last_irrigation_by_field.get(field_key)
+      if previous_time is None or irrigation_time > previous_time:
+        last_irrigation_by_field[field_key] = irrigation_time
+    except (TypeError, ValueError):
+      continue
+
   zone_groups = {}
   for req in water_requests:
     z_name = _clean_zone(req.get('ZoneName'))
@@ -929,6 +999,8 @@ def get_priority_schedule():
           'ZoneName': z_name,
           'moistures': [],
           'temps': [],
+          'areas': [],
+          'irrigation_intervals': [],
           'count': 0,
       }
 
@@ -940,8 +1012,44 @@ def get_priority_schedule():
     if temp is None:
       temp = (28.0 + (req.get('RequestID', 1) % 5) * 0.7)
 
+    area_acres = req.get('AreaAcres') or req.get('Size')
+    if area_acres is None:
+      try:
+        request_farmer_id = int(req.get('farmer_id'))
+        request_field_id = int(req.get('FieldID'))
+        matching_field = next(
+          (
+            field for field in farmer_fields.get(request_farmer_id, [])
+            if int(field.get('FieldID', -1)) == request_field_id
+          ),
+          None,
+        )
+        area_acres = matching_field.get('Size', 2.5) if matching_field else 2.5
+      except (TypeError, ValueError):
+        area_acres = 2.5
+
+    days_since_last_irrigation = req.get('DaysSinceLastIrrigation')
+    if days_since_last_irrigation is None:
+      try:
+        field_key = (int(req.get('farmer_id')), int(req.get('FieldID')))
+        last_irrigation = last_irrigation_by_field.get(field_key)
+        days_since_last_irrigation = (
+          max(
+            0.0,
+            (datetime.datetime.now() - last_irrigation).total_seconds() / 86400.0,
+          )
+          if last_irrigation is not None
+          else 10.0
+        )
+      except (TypeError, ValueError):
+        days_since_last_irrigation = 10.0
+
     zone_groups[z_name]['moistures'].append(float(moist))
     zone_groups[z_name]['temps'].append(float(temp))
+    zone_groups[z_name]['areas'].append(float(area_acres))
+    zone_groups[z_name]['irrigation_intervals'].append(
+      float(days_since_last_irrigation),
+    )
     zone_groups[z_name]['count'] += 1
 
   zones_sensor_data = []
@@ -952,7 +1060,7 @@ def get_priority_schedule():
       z_count = data['count']
 
       z_weight = 1.5 if 'tail' in z_name.lower() or '3' in z_name else (1.2 if 'middle' in z_name.lower() or '2' in z_name else 1.0)
-      total_acres = round(z_count * 2.5, 1)
+      total_acres = round(sum(data['areas']), 1)
 
       zones_sensor_data.append({
           'ZoneID': f'Z_{hash(z_name) % 1000}',
@@ -962,6 +1070,7 @@ def get_priority_schedule():
           'TotalAreaAcres': total_acres,
           'FieldMoistureReadings': moist_list,
           'FieldTempReadings': temp_list,
+          'DaysSinceLastIrrigation': data['irrigation_intervals'],
           'RoundRobinStatus': 'Active Rotation',
       })
 
@@ -975,6 +1084,7 @@ def get_priority_schedule():
             'TotalAreaAcres': 2.5,
             'FieldMoistureReadings': [28.0],
             'FieldTempReadings': [28.0],
+            'DaysSinceLastIrrigation': [10.0],
             'RoundRobinStatus': 'Active (Rotation 1)',
         },
         {
@@ -985,6 +1095,7 @@ def get_priority_schedule():
             'TotalAreaAcres': 7.5,
             'FieldMoistureReadings': [45.0, 46.0, 34.0],
             'FieldTempReadings': [28.7, 30.8, 30.1],
+            'DaysSinceLastIrrigation': [8.0, 7.0, 10.0],
             'RoundRobinStatus': 'Queued (Rotation 2)',
         },
         {
@@ -995,6 +1106,7 @@ def get_priority_schedule():
             'TotalAreaAcres': 2.5,
             'FieldMoistureReadings': [35.0],
             'FieldTempReadings': [28.7],
+            'DaysSinceLastIrrigation': [9.0],
             'RoundRobinStatus': 'Queued (Rotation 3)',
         },
         {
@@ -1005,6 +1117,7 @@ def get_priority_schedule():
             'TotalAreaAcres': 2.5,
             'FieldMoistureReadings': [52.0],
             'FieldTempReadings': [29.4],
+            'DaysSinceLastIrrigation': [6.0],
             'RoundRobinStatus': 'Queued (Rotation 4)',
         },
     ]
@@ -1013,14 +1126,27 @@ def get_priority_schedule():
   for z in zones_sensor_data:
     moist_list = z['FieldMoistureReadings']
     temp_list = z['FieldTempReadings']
+    irrigation_intervals = z['DaysSinceLastIrrigation']
 
     avg_moisture = round(sum(moist_list) / len(moist_list), 1)
     avg_temp = round(sum(temp_list) / len(temp_list), 1)
+    avg_days_since_last_irrigation = round(
+      sum(irrigation_intervals) / len(irrigation_intervals),
+      1,
+    )
 
-    zone_urgency_score = calculate_urgency_score(avg_moisture, z['ZoneName'], forecast_rain)
-    zone_target_water_mm = calculate_target_water_req(avg_moisture, avg_temp, forecast_rain)
-
-    zone_total_liters = int(zone_target_water_mm * z['TotalAreaAcres'] * 4046.86)
+    zone_urgency_score = calculate_urgency_score(
+      avg_moisture,
+      avg_temp,
+      avg_days_since_last_irrigation,
+    )
+    zone_target_water_liters = calculate_target_water_req(
+      avg_moisture,
+      avg_temp,
+      previous_day_rainfall,
+      z['TotalAreaAcres'],
+    )
+    zone_total_liters = int(round(zone_target_water_liters))
 
     schedule.append({
         'ZoneID': z['ZoneID'],
@@ -1030,16 +1156,20 @@ def get_priority_schedule():
         'TotalAreaAcres': z['TotalAreaAcres'],
         'AvgSoilMoisture': avg_moisture,
         'AvgSoilTemp': avg_temp,
+        'AvgDaysSinceLastIrrigation': avg_days_since_last_irrigation,
         'urgency_score': zone_urgency_score,
-        'target_water_req_mm': zone_target_water_mm,
+        'target_water_req_liters': zone_total_liters,
         'PredictedVolume': zone_total_liters,
         'RainfallForecast': forecast_rain,
+        'PreviousDayRainfall': previous_day_rainfall,
         'WaterLevel': f'{reservoir_water_level} ft',
         'RoundRobinStatus': z['RoundRobinStatus'],
         'Date': 'Today',
         'Explanation': (
-            f'[{release_status} Supply Policy] Avg Moisture: {avg_moisture}%, Avg Temp: {avg_temp}°C. '
-            f'Urgency Score: {zone_urgency_score} (Formula 1). Target Water Needed: {zone_target_water_mm} mm (Formula 2).'
+            f'[{release_status} Supply Policy] Avg Moisture: {avg_moisture}%, Avg Temp: {avg_temp}°C, '
+            f'Avg Days Since Irrigation: {avg_days_since_last_irrigation}. '
+            f'Previous-day Rainfall: {previous_day_rainfall} mm, Area: {z["TotalAreaAcres"]} acres. '
+            f'Urgency Score: {zone_urgency_score} (Formula 1). Target Water Needed: {zone_total_liters} L (Formula 2).'
         ),
     })
 
@@ -1048,7 +1178,7 @@ def get_priority_schedule():
   elif release_status == 'Medium':
     sorted_schedule = schedule
   else:
-    sorted_schedule = sorted(schedule, key=lambda x: x['target_water_req_mm'], reverse=True)
+    sorted_schedule = sorted(schedule, key=lambda x: x['target_water_req_liters'], reverse=True)
 
   for index, item in enumerate(sorted_schedule):
     item['Rank'] = index + 1
@@ -1163,6 +1293,7 @@ def submit_water_request():
   try:
     farmer_id = int(data.get('farmer_id'))
     field_id = int(data.get('field_id'))
+    area_acres = float(data.get('area_acres', 2.5))
   except (TypeError, ValueError):
     return jsonify({'error': 'farmer_id and field_id are required'}), 400
   current_farmer = _current_farmer_id()
@@ -1177,11 +1308,13 @@ def submit_water_request():
   if conn:
     try:
       cursor = conn.cursor(dictionary=True)
-      cursor.execute("SELECT ZoneNo FROM field_profile WHERE FieldID = %s AND FarmerID = %s",
+      cursor.execute("SELECT ZoneNo, Size FROM field_profile WHERE FieldID = %s AND FarmerID = %s",
                      (field_id, farmer_id))
       fp_row = cursor.fetchone()
       if fp_row:
         zone_no = int(fp_row['ZoneNo'])
+        if fp_row.get('Size') is not None:
+          area_acres = float(fp_row['Size'])
       cursor.close()
     except Exception as e:
       print('Field lookup error:', e)
@@ -1191,6 +1324,7 @@ def submit_water_request():
     for field in farmer_fields.get(farmer_id, []):
       if field.get('FieldID') == field_id:
         zone_no = int(field['ZoneNo'])
+        area_acres = float(field.get('Size', area_acres))
         break
   if zone_no is None:
     return jsonify({'error': 'Field not found for farmer'}), 404
@@ -1227,6 +1361,7 @@ def submit_water_request():
     'Status': 'Pending',
     'RequestTime': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     'farmer_name': f'Farmer #{farmer_id}',
+    'AreaAcres': area_acres,
   }
 
   # Keep the reading at request time, independently of future live updates.
@@ -1347,7 +1482,7 @@ def admin_get_water_requests():
     try:
       cursor = conn.cursor(dictionary=True)
       cursor.execute(
-        "SELECT ir.RequestID, ir.FarmerID, ir.FieldID, ir.RequestTime, ir.Status, f.F_Name, f.L_Name, fp.ZoneNo "
+        "SELECT ir.RequestID, ir.FarmerID, ir.FieldID, ir.RequestTime, ir.Status, f.F_Name, f.L_Name, fp.ZoneNo, fp.Size "
         "FROM irrigation_request ir "
         "LEFT JOIN farmer f ON ir.FarmerID = f.FarmerID "
         "LEFT JOIN field_profile fp ON ir.FieldID = fp.FieldID "
@@ -1364,7 +1499,8 @@ def admin_get_water_requests():
           'ZoneName': f"Zone {r.get('ZoneNo', '?')} (Field #{r['FieldID']})",
           'Status': r['Status'],
           'RequestTime': req_time_str,
-          'farmer_name': farmer_name
+          'farmer_name': farmer_name,
+          'AreaAcres': float(r['Size']) if r.get('Size') is not None else 2.5,
         })
       cursor.close()
       conn.close()
@@ -1381,6 +1517,20 @@ def admin_get_water_requests():
 
   sorted_reqs = sorted(_attach_request_snapshots(list(req_map.values())),
                        key=lambda x: x.get('RequestID', 0), reverse=True)
+  previous_day_rainfall = get_previous_day_rainfall()
+  for req in sorted_reqs:
+    req.setdefault('PreviousDayRainfall', previous_day_rainfall)
+    if req.get('AreaAcres') is None:
+      req['AreaAcres'] = 2.5
+      try:
+        farmer_id = int(req.get('farmer_id'))
+        field_id = int(req.get('FieldID'))
+        for field in farmer_fields.get(farmer_id, []):
+          if int(field.get('FieldID', -1)) == field_id:
+            req['AreaAcres'] = float(field.get('Size', 2.5))
+            break
+      except (TypeError, ValueError):
+        pass
   return jsonify({'status': 'success', 'requests': sorted_reqs}), 200
 
 

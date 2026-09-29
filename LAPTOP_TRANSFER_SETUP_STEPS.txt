@@ -1,0 +1,274 @@
+SMART IRRIGATION PROJECT - TRANSFER TO ANOTHER LAPTOP
+======================================================
+
+IMPORTANT
+---------
+- Copy the complete current project, not only a fresh Git clone.
+- The current Flutter telemetry fixes are not committed yet.
+- Several important files are ignored by Git, including users.json, .env files,
+  model .pkl files, device_secrets.h, Arduino backups, and generated folders.
+- Never publish Wi-Fi passwords, database passwords, device tokens, SMTP
+  passwords, service-role keys, or other secrets to a public repository.
+
+
+1. PREPARE THE OLD LAPTOP
+-------------------------
+
+Stop Flutter and Flask before copying the project. The ESP8266 can continue
+sending readings directly to Supabase.
+
+Copy this complete folder:
+
+C:\Users\GAJAN\Desktop\flutter\PRIORITY-BASED-MACHINE-LEARNING-BASED-SMART-IRRIGATION-DECISSION-SUPPORT-SYSTEM-CODE-PANTHERS
+
+Include hidden and ignored files, especially:
+
+- .git
+- users.json
+- water_release_model.pkl
+- Any .env files
+- esp32_sensor_client\device_secrets.h
+- esp32_sensor_client\backups
+- The actual Arduino sketch folder containing sketch_sep29b.ino
+
+The following Flutter files currently contain uncommitted telemetry fixes and
+must be transferred:
+
+- lib\app_config.dart
+- lib\dashboard_screen.dart
+- lib\supabase_sensor_service.dart
+
+These generated folders can be excluded to reduce the transfer size:
+
+- .venv
+- .dart_tool
+- build
+- .arduino-build
+- __pycache__
+
+Transfer secret files using an encrypted USB drive or protected archive.
+
+
+2. EXPORT MYSQL IF IT IS USED
+-----------------------------
+
+Supabase IoT telemetry does not require a local MySQL transfer. Export MySQL
+only if Flask uses it for fields, requests, users, or other application data.
+
+On the old laptop:
+
+mysqldump -u root -p smart_irrigation_db > smart_irrigation_db.sql
+
+Transfer smart_irrigation_db.sql securely.
+
+On the new laptop:
+
+mysql -u root -p -e "CREATE DATABASE smart_irrigation_db;"
+mysql -u root -p smart_irrigation_db < smart_irrigation_db.sql
+
+Do not copy MySQL's internal data directory directly.
+
+
+3. INSTALL SOFTWARE ON THE NEW LAPTOP
+-------------------------------------
+
+Install:
+
+- Git
+- Flutter SDK (preferably the same version: Flutter 3.47.5)
+- Chrome
+- Python 3.12
+- Arduino IDE (currently 2.3.10)
+- MySQL Server, only if the project uses local MySQL
+- NodeMCU USB driver, normally CH340 or CP210x
+
+Verify Flutter:
+
+flutter doctor
+flutter config --enable-web
+flutter devices
+
+If Flutter is placed at the following relative location, the existing README
+commands will continue to work:
+
+C:\Users\<NEW_USER>\Desktop\flutter\.tools\flutter
+
+Otherwise, add Flutter's bin directory to the Windows PATH.
+
+
+4. RECREATE THE PYTHON ENVIRONMENT
+----------------------------------
+
+Open PowerShell in the copied project folder:
+
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+If water_release_model.pkl was copied, retraining is not required.
+
+If it was not copied, run:
+
+.\.venv\Scripts\python.exe train_model.py
+
+
+5. RESTORE BACKEND ENVIRONMENT VARIABLES
+----------------------------------------
+
+Set the same values used on the old laptop:
+
+$env:MYSQL_HOST = '127.0.0.1'
+$env:MYSQL_PORT = '3306'
+$env:MYSQL_DATABASE = 'smart_irrigation_db'
+$env:MYSQL_USER = 'YOUR_MYSQL_USER'
+$env:MYSQL_PASSWORD = 'YOUR_MYSQL_PASSWORD'
+$env:SESSION_SECRET = 'YOUR_EXISTING_SESSION_SECRET'
+$env:ADMIN_KEY = 'YOUR_ADMIN_KEY'
+$env:ADMIN_PASSWORD = 'YOUR_ADMIN_PASSWORD'
+$env:OPENWEATHER_API_KEY = 'YOUR_WEATHER_KEY'
+
+If password-reset email is used, also restore:
+
+$env:SMTP_HOST = 'YOUR_SMTP_HOST'
+$env:SMTP_PORT = 'YOUR_SMTP_PORT'
+$env:SMTP_USER = 'YOUR_SMTP_USER'
+$env:SMTP_PASSWORD = 'YOUR_SMTP_PASSWORD'
+$env:SMTP_FROM = 'YOUR_SMTP_FROM_ADDRESS'
+
+Store these securely. Do not commit them to Git.
+
+
+6. START AND VERIFY FLASK
+-------------------------
+
+Start Flask from the project folder:
+
+.\.venv\Scripts\python.exe -m flask --app app run --host 127.0.0.1 --port 5000
+
+Open this URL:
+
+http://127.0.0.1:5000/api/model-info
+
+Confirm it reports:
+
+"model_loaded": true
+
+
+7. RESTORE AND RUN FLUTTER
+--------------------------
+
+Open another PowerShell terminal in the project folder:
+
+flutter pub get
+flutter analyze
+flutter test
+flutter build web
+
+Start the application:
+
+flutter run -d chrome --dart-define=API_BASE_URL=http://127.0.0.1:5000
+
+The corrected Flutter project already contains the client-safe Supabase URL
+and publishable key. Never add a Supabase service-role key or device secret to
+the Flutter application.
+
+
+8. CONFIGURE ARDUINO IDE
+------------------------
+
+1. Install the ESP8266 board package.
+2. Select: NodeMCU 1.0 (ESP-12E Module).
+3. Install the OneWire library.
+4. Install the DallasTemperature library.
+5. Open the transferred sketch_sep29b.ino sketch.
+6. Select the new COM port.
+7. Upload only if the sketch or Wi-Fi settings need changing.
+8. Open Serial Monitor at 115200 baud.
+
+Expected successful output:
+
+HTTP status: 201
+SUCCESS: Sensor data stored in Supabase.
+
+If the ESP8266 is already flashed and remains connected to the same Wi-Fi, it
+does not require the new laptop to continue sending readings.
+
+
+9. SUPABASE SETUP
+-----------------
+
+Supabase is cloud-hosted. Its tables, sensor readings, registered device, Edge
+Function, and Farmer 6 mapping remain available without database migration.
+
+Keep the existing values:
+
+- Supabase project reference: bsmhjdwtbpbhlktjmocj
+- Device ID: ESP32_ZONE_01
+- farmer_id: 6
+- zone_no: 1
+
+Do not rename ESP32_ZONE_01.
+
+To manage or redeploy the Edge Function from the new laptop, install the
+Supabase CLI and run:
+
+supabase login
+supabase link --project-ref bsmhjdwtbpbhlktjmocj
+
+Existing cloud secrets remain in Supabase unless deliberately changed.
+
+
+10. FINAL END-TO-END CHECK
+--------------------------
+
+1. Start Flask on port 5000.
+2. Start Flutter in Chrome.
+3. Log in as Farmer 6:
+   Username: wa
+   Password: sa
+4. Confirm Field #9, Zone 1 loads.
+5. Confirm the dashboard selects ESP32_ZONE_01.
+6. Confirm moisture and temperature appear.
+7. Confirm ONLINE appears when the latest reading is less than 60 seconds old.
+8. Confirm the dashboard refreshes approximately every five seconds.
+9. Confirm Arduino Serial Monitor repeatedly reports HTTP 201.
+10. Confirm Flask model information reports model_loaded=true.
+
+
+TROUBLESHOOTING
+---------------
+
+Old message: "Backend login required for ESP32 data"
+- The old Flutter source or a stale Flutter process is running.
+- Stop flutter run completely and start it again.
+- Do not rely only on browser refresh or hot reload after Supabase startup
+  configuration changes.
+
+Device shows OFFLINE
+- Confirm Arduino Serial Monitor reports HTTP 201.
+- Confirm readings are reaching Supabase every ten seconds.
+- Confirm the logged-in account resolves to farmer_id 6.
+- Confirm ESP32_ZONE_01 is active and assigned to farmer_id 6, zone_no 1.
+- Confirm the browser is running the corrected Flutter project.
+
+No Flask connection
+- Confirm Flask is running at http://127.0.0.1:5000.
+- Confirm API_BASE_URL is supplied to flutter run.
+- Check Windows Firewall if accessing Flask from another device.
+
+Missing Farmer accounts or data
+- Confirm users.json was copied.
+- Confirm fields.json and requests.json were copied.
+- If MySQL was used, confirm the SQL export was imported.
+
+Missing ML model
+- Copy water_release_model.pkl or run train_model.py again.
+
+
+FINAL REMINDER
+--------------
+
+A fresh Git clone by itself will not reproduce the current laptop until the
+three modified Flutter files are committed and the ignored local data/secrets
+are transferred separately. Copying the complete current project folder is
+the safest immediate migration method.

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_config.dart';
@@ -45,7 +46,7 @@ class SensorReadingSnapshot {
 class SupabaseSensorService {
   SupabaseSensorService._(this._client);
 
-  static const Duration onlineThreshold = Duration(seconds: 30);
+  static const Duration onlineThreshold = Duration(seconds: 60);
   static bool _initialized = false;
 
   final SupabaseClient _client;
@@ -71,6 +72,9 @@ class SupabaseSensorService {
       _initialized ? SupabaseSensorService._(Supabase.instance.client) : null;
 
   Future<SensorReadingSnapshot?> getLatestReadingForFarmer(int farmerId) async {
+    _debugLog(
+      'Querying active IoT device for authenticated farmer_id=$farmerId',
+    );
     final device = await _client
         .from('iot_devices')
         .select('device_id, farmer_id, zone_no, device_name, last_seen')
@@ -80,8 +84,14 @@ class SupabaseSensorService {
         .limit(1)
         .maybeSingle();
 
-    if (device == null) return null;
-    return _withLatestReading(Map<String, dynamic>.from(device));
+    if (device == null) {
+      _debugLog('Supabase device query returned no active device');
+      return null;
+    }
+
+    final selectedDevice = Map<String, dynamic>.from(device);
+    _debugLog('Selected device_id=${selectedDevice['device_id']}');
+    return _withLatestReading(selectedDevice);
   }
 
   Future<List<SensorReadingSnapshot>> getAllLatestDeviceReadings() async {
@@ -113,9 +123,25 @@ class SupabaseSensorService {
         .maybeSingle();
 
     final lastSeen = _dateTime(device['last_seen']);
+    final recordedAt = _dateTime(reading?['recorded_at']);
+    final latestTimestamp = recordedAt ?? lastSeen;
     final now = DateTime.now().toUtc();
     final online =
-        lastSeen != null && !lastSeen.isBefore(now.subtract(onlineThreshold));
+        latestTimestamp != null &&
+        !latestTimestamp.isAfter(now.add(const Duration(seconds: 5))) &&
+        !latestTimestamp.isBefore(now.subtract(onlineThreshold));
+
+    _debugLog(
+      'Supabase latest reading result for device_id=$deviceId: '
+      'moisture=${reading?['moisture']}, '
+      'temperature=${reading?['temperature']}, '
+      'recorded_at=${recordedAt?.toIso8601String()}',
+    );
+    _debugLog(
+      'ONLINE/OFFLINE calculation: now=${now.toIso8601String()}, '
+      'latest=${latestTimestamp?.toIso8601String()}, '
+      'threshold=${onlineThreshold.inSeconds}s, online=$online',
+    );
 
     return SensorReadingSnapshot(
       deviceId: deviceId,
@@ -124,7 +150,7 @@ class SupabaseSensorService {
       deviceName: device['device_name']?.toString(),
       moisture: reading?['moisture'] as num?,
       temperature: (reading?['temperature'] as num?)?.toDouble(),
-      recordedAt: _dateTime(reading?['recorded_at']),
+      recordedAt: recordedAt,
       lastSeen: lastSeen,
       online: online,
     );
@@ -136,5 +162,9 @@ class SupabaseSensorService {
   static DateTime? _dateTime(dynamic value) {
     if (value == null) return null;
     return DateTime.tryParse(value.toString())?.toUtc();
+  }
+
+  static void _debugLog(String message) {
+    if (kDebugMode) debugPrint('[IoT telemetry] $message');
   }
 }

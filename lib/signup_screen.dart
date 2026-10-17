@@ -84,31 +84,32 @@ class _SignupScreenState extends State<SignupScreen> {
       final data = jsonDecode(response.body);
       final newFarmerId = (data is Map && data['farmer_id'] is int) ? data['farmer_id'] as int : null;
 
-      AuthService.instance.registerAccount(
-        username: email.contains('@') ? email.split('@')[0] : email,
-        email: email,
-        password: password,
-        roleStr: 'farmer',
-        name: "$firstName $lastName",
-        customId: newFarmerId,
-      );
-
       if (!mounted) return;
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        AuthService.instance.registerAccount(
+          username: email.contains('@') ? email.split('@')[0] : email,
+          email: email,
+          password: password,
+          roleStr: 'farmer',
+          name: "$firstName $lastName",
+          customId: newFarmerId,
+        );
         TextInput.finishAutofillContext(shouldSave: true);
         _showMessage("Signup successful! You can now login.", AppColors.emerald);
         Navigator.popUntil(context, (route) => route.isFirst);
       } else {
-        TextInput.finishAutofillContext(shouldSave: true);
-        _showMessage(data['error'] ?? "Account registered locally!", AppColors.emerald);
-        Navigator.popUntil(context, (route) => route.isFirst);
+        _showMessage(
+          data['error'] ?? "Could not save the account in the database.",
+          Colors.redAccent,
+        );
       }
     } catch (e) {
       if (!mounted) return;
-      TextInput.finishAutofillContext(shouldSave: true);
-      _showMessage("Farmer Account created successfully! (RBAC Ready)", AppColors.emerald);
-      Navigator.popUntil(context, (route) => route.isFirst);
+      _showMessage(
+        "Could not connect to the registration server. Account was not created.",
+        Colors.redAccent,
+      );
     } finally {
       if (mounted) {
         setState(() {

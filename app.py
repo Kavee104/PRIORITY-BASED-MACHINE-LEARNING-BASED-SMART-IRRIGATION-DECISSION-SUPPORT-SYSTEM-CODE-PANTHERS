@@ -35,6 +35,10 @@ else:
 
 # Simple admin key for protected admin actions. Set ADMIN_KEY env var in production.
 ADMIN_KEY = os.environ.get('ADMIN_KEY', 'supersecretadminkey')
+SUPABASE_URL = os.environ.get(
+  'SUPABASE_URL', 'https://bsmhjdwtbpbhlktjmocj.supabase.co').rstrip('/')
+SUPABASE_ANON_KEY = os.environ.get(
+  'SUPABASE_ANON_KEY', 'sb_publishable_1kgHrzhwsGkpUL3bNS0EBg_Jd42jPvD')
 SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
 session_signer = URLSafeTimedSerializer(
   os.environ.get('SESSION_SECRET') or secrets.token_hex(32), salt='farmer-session')
@@ -196,6 +200,91 @@ def _attach_request_snapshots(requests_list):
     conn.close()
   return requests_list
 
+
+def _request_zone_no(item):
+  try:
+    return int(item.get('ZoneNo'))
+  except (TypeError, ValueError):
+    match = re.search(r'Zone\s+(\d+)', str(item.get('ZoneName', '')), re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def _supabase_latest_sensors():
+  """Return the latest Supabase reading keyed by farmer and zone."""
+  if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    return {}
+  headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': f'Bearer {SUPABASE_ANON_KEY}',
+  }
+  try:
+    device_response = requests.get(
+      f'{SUPABASE_URL}/rest/v1/iot_devices',
+      headers=headers,
+      params={
+        'select': 'device_id,farmer_id,zone_no,last_seen',
+        'active': 'eq.true',
+      },
+      timeout=3,
+    )
+    device_response.raise_for_status()
+    latest = {}
+    for device in device_response.json():
+      farmer_id = device.get('farmer_id')
+      zone_no = device.get('zone_no')
+      device_id = device.get('device_id')
+      if farmer_id is None or zone_no is None or not device_id:
+        continue
+      reading_response = requests.get(
+        f'{SUPABASE_URL}/rest/v1/sensor_readings',
+        headers=headers,
+        params={
+          'select': 'moisture,temperature,recorded_at',
+          'device_id': f'eq.{device_id}',
+          'order': 'recorded_at.desc',
+          'limit': '1',
+        },
+        timeout=3,
+      )
+      reading_response.raise_for_status()
+      readings = reading_response.json()
+      if not readings:
+        continue
+      reading = readings[0]
+      latest[(int(farmer_id), int(zone_no))] = {
+        'SoilMoisture': float(reading['moisture']),
+        'SoilTemperature': float(reading['temperature']),
+        'SensorRecordedAt': reading.get('recorded_at'),
+        'DeviceID': str(device_id),
+        'ZoneNo': int(zone_no),
+        'SensorSource': 'supabase_live',
+      }
+    return latest
+  except Exception as e:
+    print('Supabase sensor read error:', e)
+    return {}
+
+
+def _attach_live_admin_sensor_values(requests_list):
+  """Fill missing admin request values using the assigned live zone sensor."""
+  needs_live_reading = any(
+    item.get('SoilMoisture') is None or item.get('SoilTemperature') is None
+    for item in requests_list
+  )
+  if not needs_live_reading:
+    return requests_list
+
+  latest = _supabase_latest_sensors()
+  for item in requests_list:
+    try:
+      farmer_id = int(item.get('farmer_id', item.get('FarmerID')))
+    except (TypeError, ValueError):
+      continue
+    sensor = latest.get((farmer_id, _request_zone_no(item)))
+    if sensor:
+      item.update(sensor)
+  return requests_list
+
 water_requests = _load_requests()
 _next_request_id = max([r.get('RequestID', 0) for r in water_requests], default=0) + 1
 
@@ -268,7 +357,6 @@ def _send_reset_otp_email(recipient, otp):
   smtp_from = os.environ.get('SMTP_FROM', smtp_user)
 
   if not smtp_host or not smtp_user or not smtp_password:
-    print(f'Password reset OTP for {recipient}: {otp}')
     return False
 
   message = EmailMessage()
@@ -306,26 +394,29 @@ def _request_password_otp(role):
   if role != 'any' and user.get('role') != role:
     return jsonify({'error': 'User not found for this role'}), 404
 
+  recipient = str(user.get('email') or identifier).strip()
+  if '@' not in recipient:
+    return jsonify({'error': 'No email address is registered for this account'}), 400
+
   otp = f'{random.randint(100000, 999999)}'
+
+  try:
+    email_sent = _send_reset_otp_email(recipient, otp)
+  except Exception as e:
+    print('Failed to send OTP email:', e)
+    return jsonify({'error': 'Could not send the verification email. Please try again.'}), 502
+
+  if not email_sent:
+    return jsonify({
+      'error': 'Email delivery is not configured. Configure the SMTP settings and try again.'
+    }), 503
+
   password_reset_otps[_otp_key(role, username)] = {
     'otp': otp,
     'expires_at': time.time() + OTP_EXPIRY_SECONDS,
     'verified': False
   }
-
-  try:
-    email_sent = _send_reset_otp_email(identifier, otp)
-  except Exception as e:
-    print('Failed to send OTP email:', e)
-    return jsonify({'error': 'Failed to send OTP email'}), 500
-
-  if email_sent:
-    return jsonify({'message': 'OTP sent to your email'}), 200
-
-  return jsonify({
-    'message': 'Email is not configured. OTP printed in Flask terminal.',
-    'dev_otp': otp
-  }), 200
+  return jsonify({'message': 'Verification code sent to your registered email.'}), 200
 
 
 def _validate_password_otp(role):
@@ -345,7 +436,7 @@ def _validate_password_otp(role):
     password_reset_otps.pop(_otp_key(role, username), None)
     return jsonify({'error': 'OTP expired. Please request a new OTP'}), 400
 
-  if record['otp'] != otp and otp != '123456':
+  if record['otp'] != otp:
     return jsonify({'error': 'Invalid OTP'}), 400
 
   record['verified'] = True
@@ -367,14 +458,56 @@ def _reset_user_password(role):
 
   key = _otp_key(role, username)
   record = password_reset_otps.get(key)
-  if not record and otp != '123456':
+  if not record:
     return jsonify({'error': 'Please verify OTP before resetting password'}), 400
 
   if time.time() > record['expires_at']:
     password_reset_otps.pop(key, None)
     return jsonify({'error': 'OTP expired. Please request a new OTP'}), 400
 
-  users[username]['password_hash'] = generate_password_hash(new_password)
+  if not record.get('verified') or record.get('otp') != otp:
+    return jsonify({'error': 'Please verify the correct OTP first'}), 400
+
+  new_password_hash = generate_password_hash(new_password)
+
+  if user.get('role') == 'farmer':
+    farmer_email = (user.get('email') or identifier).strip().lower()
+    conn = get_db_connection()
+    if conn is not None:
+      cursor = None
+      try:
+        cursor = conn.cursor()
+        cursor.execute(
+          "UPDATE farmer SET Password = %s "
+          "WHERE FarmerID = %s OR LOWER(Email) = LOWER(%s)",
+          (new_password_hash, user.get('id'), farmer_email),
+        )
+        conn.commit()
+      except Exception as exc:
+        # The JSON account store is the authentication source used by this
+        # prototype, so a temporary MySQL problem must not block a verified
+        # password reset. Keep MySQL synchronization best-effort.
+        print('MySQL Password Reset Sync Error:', exc)
+        try:
+          conn.rollback()
+        except Exception:
+          pass
+      finally:
+        if cursor is not None:
+          cursor.close()
+        conn.close()
+
+  target_id = user.get('id')
+  target_email = (user.get('email') or identifier).strip().lower()
+  for cached_user in users.values():
+    cached_email = str(cached_user.get('email') or '').strip().lower()
+    if (
+        cached_user is user
+        or (target_id is not None and cached_user.get('id') == target_id)
+        or (target_email and cached_email == target_email)
+    ):
+      cached_user['password_hash'] = new_password_hash
+
   _write_users_file(users)
   password_reset_otps.pop(key, None)
 
@@ -721,16 +854,61 @@ def admin_create_user():
     return jsonify({'status': 'error', 'message': 'username and password required'}), 400
   if role not in ('admin', 'officer', 'farmer'):
     return jsonify({'status': 'error', 'message': 'role must be admin, officer, or farmer'}), 400
-  if username in users:
+  normalized_username = username.lower()
+  if normalized_username in users:
     return jsonify({'status': 'error', 'message': f'User "{username}" already exists'}), 400
 
-  users[username] = {
-    'password_hash': generate_password_hash(password),
-    'role': role
+  existing_ids = [
+    account.get('id') for account in users.values()
+    if isinstance(account.get('id'), int)
+  ]
+  account_id = max(existing_ids, default=0) + 1
+  password_hash = generate_password_hash(password)
+  email = normalized_username if '@' in normalized_username else None
+
+  conn = get_db_connection()
+  if conn is None:
+    return jsonify({
+      'status': 'error',
+      'message': 'Database connection failed. Configure MYSQL_USER and MYSQL_PASSWORD.'
+    }), 503
+
+  cursor = None
+  try:
+    cursor = conn.cursor()
+    _ensure_users_table(cursor)
+    _upsert_mysql_user(
+      cursor, account_id, normalized_username, email, password_hash,
+      '', '', role,
+    )
+    conn.commit()
+  except Exception as e:
+    print('MySQL user insert error:', e)
+    try:
+      conn.rollback()
+    except Exception:
+      pass
+    return jsonify({'status': 'error', 'message': 'Could not save the user in MySQL.'}), 500
+  finally:
+    if cursor is not None:
+      cursor.close()
+    conn.close()
+
+  users[normalized_username] = {
+    'id': account_id,
+    'password_hash': password_hash,
+    'role': role,
+    'email': email,
+    'name': username,
   }
-  _audit('USER_CREATED', 'admin', f'Created user "{username}" with role "{role}"')
+  _audit('USER_CREATED', 'admin', f'Created user "{normalized_username}" with role "{role}"')
   _write_users_file(users)
-  return jsonify({'status': 'success', 'username': username, 'role': role}), 200
+  return jsonify({
+    'status': 'success',
+    'username': normalized_username,
+    'role': role,
+    'user_id': account_id,
+  }), 200
 
 
 def _generate_next_farmer_id():
@@ -750,38 +928,162 @@ def _generate_next_farmer_id():
   return max(small_ids, default=0) + 1
 
 
+USERS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+  UserID BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  AccountID INT NULL,
+  Username VARCHAR(100) NOT NULL,
+  Email VARCHAR(255) NULL,
+  PasswordHash VARCHAR(255) NOT NULL,
+  FirstName VARCHAR(100) NOT NULL DEFAULT '',
+  LastName VARCHAR(100) NOT NULL DEFAULT '',
+  Role ENUM('admin', 'officer', 'farmer') NOT NULL DEFAULT 'farmer',
+  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (UserID),
+  UNIQUE KEY uq_users_username (Username),
+  UNIQUE KEY uq_users_email (Email),
+  INDEX idx_users_role (Role),
+  INDEX idx_users_account (Role, AccountID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
+
+def _ensure_users_table(cursor):
+  cursor.execute(USERS_TABLE_SQL)
+
+
+def _upsert_mysql_user(cursor, account_id, username, email, password_hash,
+                       first_name, last_name, role):
+  cursor.execute(
+    "INSERT INTO users "
+    "(AccountID, Username, Email, PasswordHash, FirstName, LastName, Role) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+    "ON DUPLICATE KEY UPDATE AccountID = VALUES(AccountID), "
+    "Email = VALUES(Email), PasswordHash = VALUES(PasswordHash), "
+    "FirstName = VALUES(FirstName), LastName = VALUES(LastName), "
+    "Role = VALUES(Role)",
+    (account_id, username, email or None, password_hash,
+     first_name, last_name, role),
+  )
+
+
+def _sync_cached_farmers_to_mysql():
+  """Backfill JSON accounts into MySQL farmer and users tables."""
+  conn = get_db_connection()
+  if conn is None:
+    return 0
+
+  unique_accounts = {}
+  for login_name, account in users.items():
+    account_id = account.get('id')
+    email = str(account.get('email') or '').strip().lower()
+    role = str(account.get('role') or 'farmer').lower()
+    identity = (role, account_id, email or login_name.lower())
+    username = login_name.strip().lower()
+    existing = unique_accounts.get(identity)
+    if existing is None or ('@' in existing[0] and '@' not in username):
+      unique_accounts[identity] = (username, account)
+
+  cursor = None
+  try:
+    cursor = conn.cursor()
+    _ensure_users_table(cursor)
+    for username, account in unique_accounts.values():
+      account_id = account.get('id')
+      email = str(account.get('email') or '').strip().lower()
+      role = str(account.get('role') or 'farmer').lower()
+      full_name = str(account.get('name') or '').strip()
+      name_parts = full_name.split(maxsplit=1)
+      first_name = name_parts[0] if name_parts else ''
+      last_name = name_parts[1] if len(name_parts) > 1 else ''
+      if role == 'farmer' and account_id is not None and email:
+        cursor.execute(
+          "INSERT INTO farmer (FarmerID, Email, Password, F_Name, L_Name) "
+          "VALUES (%s, %s, %s, %s, %s) "
+          "ON DUPLICATE KEY UPDATE Email = VALUES(Email), "
+          "Password = VALUES(Password), F_Name = VALUES(F_Name), "
+          "L_Name = VALUES(L_Name)",
+          (int(account_id), email, account.get('password_hash'),
+           first_name, last_name),
+        )
+      _upsert_mysql_user(
+        cursor, account_id, username, email, account.get('password_hash', ''),
+        first_name, last_name, role,
+      )
+    conn.commit()
+    print(f'Synchronized {len(unique_accounts)} user account(s) to MySQL.')
+    return len(unique_accounts)
+  except Exception as e:
+    print('MySQL farmer synchronization error:', e)
+    try:
+      conn.rollback()
+    except Exception:
+      pass
+    return 0
+  finally:
+    if cursor is not None:
+      cursor.close()
+    conn.close()
+
+
 @app.route('/signup', methods=['POST'])
 def farmer_signup():
   data = request.get_json(force=True)
   f_name = (data.get('f_name') or '').strip()
   l_name = (data.get('l_name') or '').strip()
-  email = (data.get('email') or '').strip()
+  email = (data.get('email') or '').strip().lower()
   password = (data.get('password') or '').strip()
 
   if not email or not password:
     return jsonify({'status': 'error', 'error': 'Email and password required'}), 400
 
   username = email.split('@')[0] if '@' in email else email
+  if email in users or username.lower() in users:
+    return jsonify({'status': 'error', 'error': 'An account with this email already exists'}), 409
+
   new_id = _generate_next_farmer_id()
+  password_hash = generate_password_hash(password)
 
   # Insert into MySQL farmer table
   conn = get_db_connection()
-  if conn:
+  if conn is None:
+    return jsonify({
+      'status': 'error',
+      'error': 'Database connection failed. Configure MYSQL_USER and MYSQL_PASSWORD.'
+    }), 503
+
+  cursor = None
+  try:
+    cursor = conn.cursor()
+    _ensure_users_table(cursor)
+    conn.start_transaction()
+    cursor.execute(
+      "INSERT INTO farmer (FarmerID, Email, Password, F_Name, L_Name) VALUES (%s, %s, %s, %s, %s)",
+      (new_id, email, password_hash, f_name, l_name)
+    )
+    _upsert_mysql_user(
+      cursor, new_id, username.lower(), email, password_hash,
+      f_name, l_name, 'farmer',
+    )
+    conn.commit()
+  except Exception as e:
+    print("MySQL Farmer Insert Error:", e)
     try:
-      cursor = conn.cursor()
-      cursor.execute(
-        "INSERT INTO farmer (FarmerID, Email, Password, F_Name, L_Name) VALUES (%s, %s, %s, %s, %s)",
-        (new_id, email, generate_password_hash(password), f_name, l_name)
-      )
+      conn.rollback()
+    except Exception:
+      pass
+    return jsonify({'status': 'error', 'error': 'Could not save the farmer account in MySQL.'}), 500
+  finally:
+    if cursor is not None:
       cursor.close()
-      conn.close()
-      print(f"Successfully inserted farmer #{new_id} ({email}) into MySQL database!")
-    except Exception as e:
-      print("MySQL Farmer Insert Error:", e)
+    conn.close()
+
+  print(f"Successfully inserted farmer #{new_id} ({email}) into MySQL database!")
 
   user_obj = {
     'id': new_id,
-    'password_hash': generate_password_hash(password),
+    'password_hash': password_hash,
     'role': 'farmer',
     'email': email,
     'name': f"{f_name} {l_name}".strip() or username
@@ -1074,6 +1376,51 @@ def get_priority_schedule():
           'RoundRobinStatus': 'Active Rotation',
       })
 
+    # Demo zones keep the priority screen populated for presentations while
+    # preserving any real zones built from farmer requests above.
+    demo_zones = [
+        {
+            'ZoneID': 'DEMO_Z_2',
+            'ZoneName': 'Zone 2',
+            'ZoneWeight': 1.3,
+            'TotalFields': 2,
+            'TotalAreaAcres': 8.0,
+            'FieldMoistureReadings': [24.0, 29.0],
+            'FieldTempReadings': [34.2, 33.5],
+            'DaysSinceLastIrrigation': [9.0, 8.0],
+            'RoundRobinStatus': 'Demo - High Priority',
+        },
+        {
+            'ZoneID': 'DEMO_Z_3',
+            'ZoneName': 'Zone 3',
+            'ZoneWeight': 1.1,
+            'TotalFields': 3,
+            'TotalAreaAcres': 15.0,
+            'FieldMoistureReadings': [48.0, 52.0, 55.0],
+            'FieldTempReadings': [29.0, 30.0, 28.5],
+            'DaysSinceLastIrrigation': [5.0, 4.0, 6.0],
+            'RoundRobinStatus': 'Demo - Medium Priority',
+        },
+        {
+            'ZoneID': 'DEMO_Z_4',
+            'ZoneName': 'Zone 4',
+            'ZoneWeight': 1.0,
+            'TotalFields': 2,
+            'TotalAreaAcres': 6.0,
+            'FieldMoistureReadings': [70.0, 74.0],
+            'FieldTempReadings': [26.2, 27.0],
+            'DaysSinceLastIrrigation': [2.0, 3.0],
+            'RoundRobinStatus': 'Demo - Low Priority',
+        },
+    ]
+    existing_zone_names = {
+      _clean_zone(zone['ZoneName']).lower() for zone in zones_sensor_data
+    }
+    zones_sensor_data.extend(
+      zone for zone in demo_zones
+      if _clean_zone(zone['ZoneName']).lower() not in existing_zone_names
+    )
+
   if not zones_sensor_data:
     zones_sensor_data = [
         {
@@ -1285,9 +1632,51 @@ def add_farmer_field(farmer_id):
 # ---------------------------------------------------------------------------
 # Water Request endpoints (MySQL DB Integrated)
 # ---------------------------------------------------------------------------
+def _validated_client_sensor_snapshot(data, expected_zone_no):
+  """Validate a farmer dashboard reading before attaching it to a request."""
+  snapshot = data.get('sensor_snapshot')
+  if not isinstance(snapshot, dict):
+    return None
+
+  moisture = snapshot.get('moisture')
+  temperature = snapshot.get('temperature')
+  device_id = snapshot.get('device_id')
+  recorded_at = snapshot.get('recorded_at')
+  try:
+    zone_no = int(snapshot.get('zone_no'))
+  except (TypeError, ValueError):
+    return None
+
+  if zone_no != expected_zone_no:
+    return None
+  if (isinstance(moisture, bool) or not isinstance(moisture, (int, float))
+      or not math.isfinite(moisture) or not 0 <= moisture <= 100):
+    return None
+  if (isinstance(temperature, bool) or not isinstance(temperature, (int, float))
+      or not math.isfinite(temperature) or not -40 <= temperature <= 85):
+    return None
+  if not isinstance(device_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{3,80}', device_id):
+    return None
+  if recorded_at is not None:
+    if not isinstance(recorded_at, str):
+      return None
+    try:
+      datetime.datetime.fromisoformat(recorded_at.replace('Z', '+00:00'))
+    except ValueError:
+      return None
+
+  return {
+    'SoilMoisture': float(moisture),
+    'SoilTemperature': float(temperature),
+    'SensorRecordedAt': recorded_at,
+    'DeviceID': device_id,
+    'ZoneNo': zone_no,
+    'SensorSource': 'supabase',
+  }
+
+
 @app.route('/request-water', methods=['POST'])
 def submit_water_request():
-  global _next_request_id
   import datetime
   data = request.get_json(silent=True) or {}
   try:
@@ -1305,21 +1694,25 @@ def submit_water_request():
   # Resolve the field before creating a request or attaching a zone reading.
   zone_no = None
   conn = get_db_connection()
-  if conn:
-    try:
-      cursor = conn.cursor(dictionary=True)
-      cursor.execute("SELECT ZoneNo, Size FROM field_profile WHERE FieldID = %s AND FarmerID = %s",
-                     (field_id, farmer_id))
-      fp_row = cursor.fetchone()
-      if fp_row:
-        zone_no = int(fp_row['ZoneNo'])
-        if fp_row.get('Size') is not None:
-          area_acres = float(fp_row['Size'])
+  if conn is None:
+    return jsonify({'error': 'Database connection failed. Request was not saved.'}), 503
+  cursor = None
+  try:
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT ZoneNo, Size FROM field_profile WHERE FieldID = %s AND FarmerID = %s",
+                   (field_id, farmer_id))
+    fp_row = cursor.fetchone()
+    if fp_row:
+      zone_no = int(fp_row['ZoneNo'])
+      if fp_row.get('Size') is not None:
+        area_acres = float(fp_row['Size'])
+  except Exception as e:
+    print('Field lookup error:', e)
+    return jsonify({'error': 'Could not verify the field in the database.'}), 503
+  finally:
+    if cursor is not None:
       cursor.close()
-    except Exception as e:
-      print('Field lookup error:', e)
-    finally:
-      conn.close()
+    conn.close()
   if zone_no is None:
     for field in farmer_fields.get(farmer_id, []):
       if field.get('FieldID') == field_id:
@@ -1330,28 +1723,30 @@ def submit_water_request():
     return jsonify({'error': 'Field not found for farmer'}), 404
   zone_name = f'Zone {zone_no} (Field #{field_id})'
 
-  new_req_id = None
   conn = get_db_connection()
-  if conn:
+  if conn is None:
+    return jsonify({'error': 'Database connection failed. Request was not saved.'}), 503
+  cursor = None
+  try:
+    cursor = conn.cursor()
+    cursor.execute(
+      "INSERT INTO irrigation_request (FarmerID, FieldID, RequestTime, Status) VALUES (%s, %s, NOW(), 'Pending')",
+      (farmer_id, field_id)
+    )
+    new_req_id = cursor.lastrowid
+    conn.commit()
+    print(f"Successfully inserted irrigation request #{new_req_id} into MySQL database!")
+  except Exception as e:
+    print("Error inserting water request into MySQL:", e)
     try:
-      cursor = conn.cursor()
-      cursor.execute(
-        "INSERT INTO irrigation_request (FarmerID, FieldID, RequestTime, Status) VALUES (%s, %s, NOW(), 'Pending')",
-        (farmer_id, field_id)
-      )
-      new_req_id = cursor.lastrowid
-      conn.commit()
-      cursor.close()
-      print(f"Successfully inserted irrigation request #{new_req_id} into MySQL database!")
-    except Exception as e:
-      print("Error inserting water request into MySQL:", e)
       conn.rollback()
-    finally:
-      conn.close()
-
-  if not new_req_id:
-    new_req_id = _next_request_id
-    _next_request_id += 1
+    except Exception:
+      pass
+    return jsonify({'error': 'Could not save the water request in the database.'}), 500
+  finally:
+    if cursor is not None:
+      cursor.close()
+    conn.close()
 
   req = {
     'RequestID': new_req_id,
@@ -1362,6 +1757,7 @@ def submit_water_request():
     'RequestTime': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     'farmer_name': f'Farmer #{farmer_id}',
     'AreaAcres': area_acres,
+    'ZoneNo': zone_no,
   }
 
   # Keep the reading at request time, independently of future live updates.
@@ -1383,6 +1779,15 @@ def submit_water_request():
         print('Sensor snapshot write error:', e)
       finally:
         conn.close()
+
+  # The Flutter dashboards use Supabase for live telemetry while this Flask
+  # service may use a separate MySQL connection. If MySQL had no matching
+  # reading, retain the authenticated farmer's validated Supabase reading that
+  # accompanied the request.
+  if req.get('SoilMoisture') is None and current_farmer is not None:
+    client_snapshot = _validated_client_sensor_snapshot(data, zone_no)
+    if client_snapshot:
+      req.update(client_snapshot)
 
   water_requests.insert(0, req)  # newest first
   _audit('WATER_REQUEST', f'farmer_{farmer_id}', f'Submitted water request #{req["RequestID"]} for field #{field_id} ({zone_name})')
@@ -1515,8 +1920,10 @@ def admin_get_water_requests():
     if 'RequestID' in r:
       req_map[r['RequestID']] = r
 
-  sorted_reqs = sorted(_attach_request_snapshots(list(req_map.values())),
+  response_reqs = [dict(item) for item in req_map.values()]
+  sorted_reqs = sorted(_attach_request_snapshots(response_reqs),
                        key=lambda x: x.get('RequestID', 0), reverse=True)
+  _attach_live_admin_sensor_values(sorted_reqs)
   previous_day_rainfall = get_previous_day_rainfall()
   for req in sorted_reqs:
     req.setdefault('PreviousDayRainfall', previous_day_rainfall)
@@ -1767,6 +2174,7 @@ def predict_water_release():
 
 
 if __name__ == '__main__':
+  _sync_cached_farmers_to_mysql()
   app.run(host=os.environ.get('API_HOST', '127.0.0.1'),
           port=int(os.environ.get('API_PORT', '5000')), debug=False)
 

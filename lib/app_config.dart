@@ -11,7 +11,9 @@ class AppConfig {
     }
 
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:5000';
+      // Physical phone and development laptop must use the same Wi-Fi network.
+      // Override this at run time if the laptop receives a different LAN IP.
+      return 'http://172.31.98.224:5000';
     }
 
     return 'http://localhost:5000';

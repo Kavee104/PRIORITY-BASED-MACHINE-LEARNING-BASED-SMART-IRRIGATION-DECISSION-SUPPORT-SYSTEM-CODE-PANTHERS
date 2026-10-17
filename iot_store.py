@@ -115,6 +115,7 @@ def save_request_snapshot(conn, request_id, farmer_id, field_id, zone_no, readin
             (request_id, farmer_id, field_id, zone_no, device['id'],
              reading['moisture'], reading['temperature'],
              datetime.fromisoformat(reading['recordedAt']).replace(tzinfo=None)))
+        conn.commit()
     finally:
         cursor.close()
 

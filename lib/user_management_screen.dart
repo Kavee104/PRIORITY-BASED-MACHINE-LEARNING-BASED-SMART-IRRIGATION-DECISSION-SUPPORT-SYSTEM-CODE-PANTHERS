@@ -63,13 +63,6 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     final password = _passwordController.text.trim();
     final role = _selectedRole;
 
-    // Register locally in AuthService for RBAC
-    AuthService.instance.registerAccount(
-      username: username,
-      password: password,
-      roleStr: role,
-    );
-
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/admin/create-user'),
@@ -84,23 +77,33 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
+        AuthService.instance.registerAccount(
+          username: username,
+          password: password,
+          roleStr: role,
+          customId: data['user_id'] is int ? data['user_id'] as int : null,
+        );
         _showBanner('User "$username" created as $role!', Colors.green.shade700);
-      } else {
-        _showBanner('User "$username" registered locally as $role!', Colors.green.shade700);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      _showBanner('User "$username" created locally as $role (Offline mode)', Colors.green.shade700);
-    } finally {
-      if (mounted) {
         _formKey.currentState!.reset();
         _usernameController.clear();
         _passwordController.clear();
         _confirmPasswordController.clear();
-        setState(() {
-          _selectedRole = 'farmer';
-          _isCreating = false;
-        });
+        setState(() => _selectedRole = 'farmer');
+      } else {
+        _showBanner(
+          data['message'] ?? 'Could not save the user in the database.',
+          Colors.redAccent,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showBanner(
+        'Could not connect to the server. User was not created.',
+        Colors.redAccent,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isCreating = false);
       }
     }
   }

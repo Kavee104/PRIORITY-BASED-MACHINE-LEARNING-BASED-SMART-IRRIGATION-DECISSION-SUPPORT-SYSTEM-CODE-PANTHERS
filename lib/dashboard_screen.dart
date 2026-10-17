@@ -51,6 +51,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   num? liveMoisture;
   double? liveTemperature;
   int? sensorZoneNo;
+  String? sensorDeviceId;
+  DateTime? sensorRecordedAt;
   String sensorStatus = "No sensor data available";
   bool sensorConnected = false;
 
@@ -71,6 +73,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           liveMoisture = null;
           liveTemperature = null;
           sensorZoneNo = null;
+          sensorDeviceId = null;
+          sensorRecordedAt = null;
           sensorConnected = false;
           sensorStatus = 'IoT telemetry configuration unavailable';
         });
@@ -86,6 +90,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         liveMoisture = reading?.moisture;
         liveTemperature = reading?.temperature;
         sensorZoneNo = reading?.zoneNo;
+        sensorDeviceId = reading?.deviceId;
+        sensorRecordedAt = reading?.lastUpdated;
         sensorConnected = reading?.online ?? false;
         sensorStatus = reading == null
             ? 'No IoT Device registered for this user'
@@ -104,6 +110,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           liveMoisture = null;
           liveTemperature = null;
           sensorZoneNo = null;
+          sensorDeviceId = null;
+          sensorRecordedAt = null;
           sensorConnected = false;
           sensorStatus = 'IoT telemetry temporarily unavailable';
         });
@@ -261,21 +269,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Find zone name
     String zoneName = "Zone (Field #$fieldId)";
     double areaAcres = 2.5;
+    int? fieldZoneNo;
     for (var f in fields) {
       final fid = int.tryParse("${f['FieldID']}");
       if (fid == fieldId) {
-        zoneName = "Zone ${f['ZoneNo']} (Field #$fieldId)";
+        fieldZoneNo = int.tryParse("${f['ZoneNo']}");
+        zoneName = "Zone ${fieldZoneNo ?? f['ZoneNo']} (Field #$fieldId)";
         areaAcres = double.tryParse("${f['Size']}") ?? 2.5;
         break;
       }
     }
+
+    // Capture the same Supabase reading currently shown on the farmer
+    // dashboard. The backend stores this with the request so the admin sees
+    // the values from request time, rather than a later live reading.
+    final hasMatchingSensor = sensorConnected && fieldZoneNo != null && sensorZoneNo == fieldZoneNo && liveMoisture != null && liveTemperature != null && sensorDeviceId != null;
+    final requestBody = <String, dynamic>{
+      "farmer_id": widget.farmerId,
+      "field_id": fieldId,
+      "area_acres": areaAcres,
+      if (hasMatchingSensor) "sensor_snapshot": {"moisture": liveMoisture, "temperature": liveTemperature, "zone_no": sensorZoneNo, "device_id": sensorDeviceId, "recorded_at": sensorRecordedAt?.toUtc().toIso8601String()},
+    };
 
     try {
       final response = await http
           .post(
             Uri.parse("$baseUrl/request-water"),
             headers: {"Content-Type": "application/json", if (AuthService.instance.sessionToken != null) "Authorization": "Bearer ${AuthService.instance.sessionToken}"},
-            body: jsonEncode({"farmer_id": widget.farmerId, "field_id": fieldId, "area_acres": areaAcres}),
+            body: jsonEncode(requestBody),
           )
           .timeout(const Duration(seconds: 3));
 
@@ -287,7 +308,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       // Network error or timeout, fallback to local registration
-      AuthService.instance.addWaterRequest(farmerId: widget.farmerId, fieldId: fieldId, zoneName: zoneName, farmerName: _currentFarmerName, areaAcres: areaAcres);
+      AuthService.instance.addWaterRequest(farmerId: widget.farmerId, fieldId: fieldId, zoneName: zoneName, farmerName: _currentFarmerName, moisture: hasMatchingSensor ? liveMoisture!.round() : null, temperature: hasMatchingSensor ? liveTemperature : null, areaAcres: areaAcres);
       _showMessage("Water request saved locally; backend sync is pending", Colors.orangeAccent);
     }
 

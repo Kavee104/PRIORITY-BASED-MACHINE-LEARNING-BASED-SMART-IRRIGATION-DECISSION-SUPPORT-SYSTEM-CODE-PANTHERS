@@ -16,6 +16,7 @@ class FakeConnection:
         self.closed = False
         self.committed = False
         self.rolled_back = False
+        self.lastrowid = 500
 
     def cursor(self, dictionary=False):
         return self
@@ -180,6 +181,254 @@ class IotApiTests(unittest.TestCase):
         self.assertEqual(owner.json['requests'][0]['SoilMoisture'], 47)
         self.assertNotIn('SoilMoisture', legacy.json['requests'][0])
         self.assertEqual(admin.json['requests'][0]['SoilMoisture'], 47)
+
+    def test_water_request_keeps_authenticated_supabase_snapshot(self):
+        user = {'id': 98765, 'role': 'farmer', 'password_hash': 'unused'}
+        token = backend._session_token('iot_test_user', user)
+        payload = {
+            'farmer_id': 98765,
+            'field_id': 4,
+            'area_acres': 3.5,
+            'sensor_snapshot': {
+                'moisture': 47,
+                'temperature': 30.5,
+                'zone_no': 2,
+                'device_id': 'ESP32_ZONE_02',
+                'recorded_at': '2026-09-30T05:18:45.492132Z',
+            },
+        }
+        fields = {98765: [{'FieldID': 4, 'ZoneNo': 2, 'Size': 3.5}]}
+        field_connection = FakeConnection({'ZoneNo': 2, 'Size': 3.5})
+        request_connection = FakeConnection()
+        with (
+            patch.dict(backend.users, {'iot_test_user': user}),
+            patch.object(backend, 'farmer_fields', fields),
+            patch.object(backend, 'water_requests', []),
+            patch.object(backend, 'get_db_connection') as get_connection,
+            patch.object(backend, '_write_requests_file'),
+        ):
+            get_connection.side_effect = [field_connection, request_connection, None]
+            response = self.client.post(
+                '/request-water', json=payload,
+                headers={'Authorization': f'Bearer {token}'})
+
+        self.assertEqual(response.status_code, 201)
+        saved = response.json['request']
+        self.assertEqual(saved['SoilMoisture'], 47.0)
+        self.assertEqual(saved['SoilTemperature'], 30.5)
+        self.assertEqual(saved['DeviceID'], 'ESP32_ZONE_02')
+        self.assertEqual(saved['ZoneNo'], 2)
+        self.assertTrue(request_connection.committed)
+        self.assertTrue(any(
+            sql.startswith('INSERT INTO irrigation_request')
+            for sql, _ in request_connection.statements))
+
+    def test_water_request_does_not_report_success_without_database(self):
+        user = {'id': 98765, 'role': 'farmer', 'password_hash': 'unused'}
+        token = backend._session_token('iot_test_user', user)
+        with patch.dict(backend.users, {'iot_test_user': user}), \
+             patch.object(backend, 'water_requests', []), \
+             patch.object(backend, 'get_db_connection', return_value=None), \
+             patch.object(backend, '_write_requests_file') as write_requests:
+            response = self.client.post(
+                '/request-water',
+                json={'farmer_id': 98765, 'field_id': 4},
+                headers={'Authorization': f'Bearer {token}'})
+            self.assertEqual(backend.water_requests, [])
+
+        self.assertEqual(response.status_code, 503)
+        write_requests.assert_not_called()
+
+    def test_client_snapshot_must_match_requested_zone(self):
+        snapshot = backend._validated_client_sensor_snapshot({
+            'sensor_snapshot': {
+                'moisture': 47,
+                'temperature': 30.5,
+                'zone_no': 9,
+                'device_id': 'ESP32_ZONE_09',
+                'recorded_at': '2026-09-30T05:18:45Z',
+            },
+        }, expected_zone_no=2)
+        self.assertIsNone(snapshot)
+
+    def test_admin_request_uses_live_supabase_values_when_snapshot_is_missing(self):
+        request_rows = [{
+            'RequestID': 14,
+            'farmer_id': 6,
+            'FieldID': 9,
+            'ZoneName': 'Zone 1 (Field #9)',
+        }]
+        live_values = {
+            (6, 1): {
+                'SoilMoisture': 0.0,
+                'SoilTemperature': 33.6,
+                'SensorRecordedAt': '2026-09-30T05:39:04.580009+00:00',
+                'DeviceID': 'ESP32_ZONE_01',
+                'ZoneNo': 1,
+                'SensorSource': 'supabase_live',
+            },
+        }
+        with patch.object(backend, '_supabase_latest_sensors',
+                          return_value=live_values):
+            backend._attach_live_admin_sensor_values(request_rows)
+
+        self.assertEqual(request_rows[0]['SoilMoisture'], 0.0)
+        self.assertEqual(request_rows[0]['SoilTemperature'], 33.6)
+        self.assertEqual(request_rows[0]['DeviceID'], 'ESP32_ZONE_01')
+
+    def test_priority_schedule_adds_varied_demo_zones(self):
+        real_request = {
+            'RequestID': 15,
+            'farmer_id': 6,
+            'FieldID': 9,
+            'ZoneName': 'Zone 1 (Field #9)',
+            'SoilMoisture': 36.5,
+            'SoilTemperature': 28.4,
+            'AreaAcres': 11.0,
+            'Status': 'Pending',
+        }
+        with patch.object(backend, 'water_requests', [real_request]), \
+             patch.object(backend, 'get_weather_forecast', return_value=0.0), \
+             patch.object(backend, 'get_previous_day_rainfall', return_value=1.2):
+            response = self.client.get('/priority-schedule')
+
+        self.assertEqual(response.status_code, 200)
+        schedule = response.json['schedule']
+        names = {item['ZoneName'] for item in schedule}
+        self.assertTrue({'Zone 1', 'Zone 2', 'Zone 3', 'Zone 4'} <= names)
+        demo_moistures = {
+            item['AvgSoilMoisture'] for item in schedule
+            if item['ZoneName'] in {'Zone 2', 'Zone 3', 'Zone 4'}
+        }
+        self.assertEqual(len(demo_moistures), 3)
+
+    def test_password_otp_is_never_exposed_when_email_is_not_configured(self):
+        user = {
+            'id': 98765,
+            'role': 'farmer',
+            'email': 'farmer@example.com',
+            'password_hash': 'unused',
+        }
+        with patch.dict(backend.users, {'farmer@example.com': user}, clear=True), \
+             patch.dict(backend.password_reset_otps, {}, clear=True), \
+             patch.object(backend, '_send_reset_otp_email', return_value=False):
+            response = self.client.post(
+                '/forgot-password', json={'email': 'farmer@example.com'})
+            self.assertEqual(response.status_code, 503)
+            self.assertNotIn('dev_otp', response.json)
+            self.assertNotIn('otp', response.json)
+            self.assertEqual(backend.password_reset_otps, {})
+
+    def test_password_otp_is_stored_only_after_email_is_sent(self):
+        user = {
+            'id': 98765,
+            'role': 'farmer',
+            'email': 'registered@example.com',
+            'password_hash': 'unused',
+        }
+        with patch.dict(backend.users, {'farmer_login': user}, clear=True), \
+             patch.dict(backend.password_reset_otps, {}, clear=True), \
+             patch.object(backend, '_send_reset_otp_email', return_value=True) as send:
+            response = self.client.post(
+                '/forgot-password', json={'email': 'farmer_login'})
+
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn('dev_otp', response.json)
+            self.assertNotIn('otp', response.json)
+            self.assertEqual(len(backend.password_reset_otps), 1)
+            send.assert_called_once()
+            self.assertEqual(send.call_args.args[0], 'registered@example.com')
+
+    def test_verified_password_reset_succeeds_without_mysql(self):
+        user = {
+            'id': 98765,
+            'role': 'farmer',
+            'email': 'registered@example.com',
+            'password_hash': backend.generate_password_hash('old-password'),
+        }
+        otp_record = {
+            'any:registered@example.com': {
+                'otp': '654321',
+                'expires_at': backend.time.time() + 600,
+                'verified': True,
+            },
+        }
+        with patch.dict(backend.users, {'registered@example.com': user}, clear=True), \
+             patch.dict(backend.password_reset_otps, otp_record, clear=True), \
+             patch.object(backend, 'get_db_connection', return_value=None), \
+             patch.object(backend, '_write_users_file'):
+            response = self.client.post('/reset-password', json={
+                'email': 'registered@example.com',
+                'otp': '654321',
+                'new_password': 'new-secure-password',
+            })
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(backend.check_password_hash(
+                user['password_hash'], 'new-secure-password'))
+            self.assertEqual(backend.password_reset_otps, {})
+
+    def test_signup_does_not_report_success_when_mysql_is_unavailable(self):
+        with patch.dict(backend.users, {}, clear=True), \
+             patch.object(backend, 'get_db_connection', return_value=None), \
+             patch.object(backend, '_write_users_file'):
+            response = self.client.post('/signup', json={
+                'f_name': 'Test',
+                'l_name': 'Farmer',
+                'email': 'new-farmer@example.com',
+                'password': 'secure-password',
+            })
+
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(backend.users, {})
+
+    def test_signup_commits_farmer_to_mysql_before_local_cache(self):
+        insert_connection = FakeConnection()
+        with patch.dict(backend.users, {}, clear=True), \
+             patch.object(backend, 'get_db_connection',
+                          side_effect=[None, insert_connection]), \
+             patch.object(backend, '_write_users_file'):
+            response = self.client.post('/signup', json={
+                'f_name': 'Test',
+                'l_name': 'Farmer',
+                'email': 'new-farmer@example.com',
+                'password': 'secure-password',
+            })
+
+            self.assertEqual(response.status_code, 201)
+            self.assertTrue(insert_connection.committed)
+            self.assertTrue(any(
+                sql.startswith('INSERT INTO farmer')
+                for sql, _ in insert_connection.statements))
+            self.assertTrue(any(
+                sql.strip().startswith('CREATE TABLE IF NOT EXISTS users')
+                for sql, _ in insert_connection.statements))
+            self.assertTrue(any(
+                sql.startswith('INSERT INTO users')
+                for sql, _ in insert_connection.statements))
+            self.assertIn('new-farmer@example.com', backend.users)
+
+    def test_admin_created_user_is_committed_to_mysql(self):
+        connection = FakeConnection()
+        with patch.dict(backend.users, {}, clear=True), \
+             patch.object(backend, 'get_db_connection', return_value=connection), \
+             patch.object(backend, '_write_users_file'):
+            response = self.client.post(
+                '/admin/create-user',
+                json={
+                    'username': 'new_officer',
+                    'password': 'secure-password',
+                    'role': 'officer',
+                },
+                headers={'X-Admin-Key': backend.ADMIN_KEY},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(connection.committed)
+            self.assertTrue(any(
+                sql.startswith('INSERT INTO users')
+                for sql, _ in connection.statements))
+            self.assertEqual(backend.users['new_officer']['role'], 'officer')
 
 
 if __name__ == '__main__':

@@ -38,6 +38,8 @@ migrate_working_dir/
 .env.*
 esp32_sensor_client/device_secrets.h
 esp32_sensor_client/backups/
+esp8266_sensor_client/device_secrets.h
+esp8266_sensor_client/backups/
 
 # Symbolication related
 app.*.symbols

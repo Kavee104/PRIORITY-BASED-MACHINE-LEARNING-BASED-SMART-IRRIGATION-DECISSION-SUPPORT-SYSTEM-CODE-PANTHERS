@@ -38,13 +38,18 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
     });
 
     try {
-      final w = await WeatherService.fetchWeatherByCoords(lat: 6.9271, lon: 79.8612);
+      final w = await WeatherService.fetchWeatherByCoords(
+        lat: 6.9271,
+        lon: 79.8612,
+      );
       if (!mounted) return;
 
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: Row(
             children: [
               Container(
@@ -53,22 +58,41 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                   color: AppColors.lightBlue,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.cloud_sync_rounded, color: AppColors.aquaBlue, size: 22),
+                child: const Icon(
+                  Icons.cloud_sync_rounded,
+                  color: AppColors.aquaBlue,
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 12),
-              const Text('AgTech Weather Telemetry', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'AgTech Weather Telemetry',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${w.temperature.toStringAsFixed(1)}°C — ${w.description}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+              Text(
+                '${w.temperature.toStringAsFixed(1)}°C — ${w.description}',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
+              ),
               const SizedBox(height: 10),
-              Text('Humidity: ${w.humidity}%', style: const TextStyle(color: AppColors.textSecondary)),
+              Text(
+                'Humidity: ${w.humidity}%',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
               const SizedBox(height: 4),
-              Text('Wind Speed: ${w.windSpeed} m/s', style: const TextStyle(color: AppColors.textSecondary)),
+              Text(
+                'Wind Speed: ${w.windSpeed} m/s',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
             ],
           ),
           actions: [
@@ -76,7 +100,9 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
               onPressed: () => Navigator.of(ctx).pop(),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.emerald,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: const Text('OK'),
             ),
@@ -130,7 +156,8 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
           schedule = data['schedule'] ?? [];
           releaseStatus = data['release_status'] ?? 'Low';
           allocationPolicy = data['allocation_policy'] ?? 'PRIORITY_BASED';
-          policyDescription = data['policy_description'] ?? 'Low Water Supply Policy Active.';
+          policyDescription =
+              data['policy_description'] ?? 'Low Water Supply Policy Active.';
           isLoading = false;
         });
       } else {
@@ -162,7 +189,8 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
             "PredictedVolume": 894387,
             "PreviousDayRainfall": 0.0,
             "Date": "Today",
-            "Explanation": "Aggregated from incoming farmer requests for Zone 28."
+            "Explanation":
+                "Aggregated from incoming farmer requests for Zone 28.",
           },
         ];
       }
@@ -184,7 +212,10 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         foregroundColor: AppColors.textDark,
-        title: const Text("Priority Schedule", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          "Priority Schedule",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppColors.emerald),
@@ -192,8 +223,18 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
           ),
           IconButton(
             icon: _isWeatherLoading
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.aquaBlue))
-                : const Icon(Icons.wb_sunny_rounded, color: Colors.orangeAccent),
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.aquaBlue,
+                    ),
+                  )
+                : const Icon(
+                    Icons.wb_sunny_rounded,
+                    color: Colors.orangeAccent,
+                  ),
             onPressed: _isWeatherLoading ? null : _fetchWeatherButtonPressed,
             tooltip: 'Live Weather',
           ),
@@ -204,14 +245,14 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
     );
   }
 
-  Widget _buildPolicyHeaderCard() {
+  Widget _buildPolicyHeaderCard({required bool isCompact}) {
     Color policyColor = Colors.red.shade700;
     if (releaseStatus == 'High') policyColor = Colors.green.shade700;
     if (releaseStatus == 'Medium') policyColor = Colors.orange.shade800;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isCompact ? 14 : 16),
       decoration: BoxDecoration(
         color: policyColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
@@ -219,20 +260,31 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
       ),
       child: Row(
         children: [
-          Icon(Icons.alt_route_rounded, color: policyColor, size: 28),
-          const SizedBox(width: 14),
+          Icon(
+            Icons.alt_route_rounded,
+            color: policyColor,
+            size: isCompact ? 24 : 28,
+          ),
+          SizedBox(width: isCompact ? 10 : 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   "Adaptive Policy Mode: $releaseStatus Water Release",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: policyColor),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: isCompact ? 14 : 14.5,
+                    color: policyColor,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   policyDescription,
-                  style: const TextStyle(fontSize: 12, color: AppColors.textDark),
+                  style: TextStyle(
+                    fontSize: isCompact ? 11.5 : 12,
+                    color: AppColors.textDark,
+                  ),
                 ),
               ],
             ),
@@ -244,7 +296,9 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
 
   Widget _buildBody() {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.emerald));
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.emerald),
+      );
     }
 
     if (schedule.isEmpty) {
@@ -256,220 +310,346 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
       );
     }
 
-    return RefreshIndicator(
-      color: AppColors.emerald,
-      onRefresh: fetchSchedule,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(20),
-        itemCount: schedule.length + 1,
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            return _buildPolicyHeaderCard();
-          }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 600;
 
-          final item = schedule[index - 1];
-          final rank = (item['Rank'] ?? index) as int;
-          final rColor = _rankColor(rank);
+        return RefreshIndicator(
+          color: AppColors.emerald,
+          onRefresh: fetchSchedule,
+          child: ListView.builder(
+            padding: EdgeInsets.all(isCompact ? 12 : 20),
+            itemCount: schedule.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return _buildPolicyHeaderCard(isCompact: isCompact);
+              }
 
-          return Container(
-            margin: const EdgeInsets.only(bottom: 14),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: rColor.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text(
-                    "#$rank",
-                    style: TextStyle(
-                      color: rColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
+              final item = schedule[index - 1];
+              final rank = (item['Rank'] ?? index) as int;
+              final rColor = _rankColor(rank);
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: EdgeInsets.all(isCompact ? 14 : 20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "${item['ZoneName'] ?? 'Irrigation Zone'}",
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: AppColors.textDark),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: isCompact ? 42 : 44,
+                      height: isCompact ? 42 : 44,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: rColor.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "Total Area: ${item['TotalAreaAcres'] ?? item['Size'] ?? 24.5} Acres • ${item['TotalFields'] ?? 8} Registered Fields",
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                      child: Text(
+                        "#$rank",
+                        style: TextStyle(
+                          color: rColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                    ),
+                    SizedBox(width: isCompact ? 12 : 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.water_drop_rounded, size: 14, color: Colors.blue),
-                                const SizedBox(width: 4),
-                                Text(
-                                  "Avg Moisture: ${item['AvgSoilMoisture'] ?? item['SoilMoisture'] ?? 21.0}%",
-                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.deepOrange.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.deepOrange.withValues(alpha: 0.3)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.thermostat_rounded, size: 14, color: Colors.deepOrange),
-                                const SizedBox(width: 4),
-                                Text(
-                                  "Avg Temp: ${item['AvgSoilTemp'] ?? item['Temperature'] ?? 30.5}°C",
-                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.deepOrange.shade900),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppColors.emerald.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: AppColors.emerald.withValues(alpha: 0.3)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.speed_rounded, size: 14, color: AppColors.emerald),
-                                const SizedBox(width: 4),
-                                Text(
-                                  "Zone Score (F1): ${item['urgency_score'] ?? '46.5'}",
-                                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.emerald),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppColors.aquaBlue.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: AppColors.aquaBlue.withValues(alpha: 0.3)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.opacity_rounded, size: 14, color: AppColors.aquaBlue),
-                                const SizedBox(width: 4),
-                                Text(
-                                  "Zone Target (F2): ${item['target_water_req_liters'] ?? item['PredictedVolume'] ?? 0} L",
-                                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.aquaBlue),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          const Icon(Icons.water_drop_outlined, size: 16, color: AppColors.textSecondary),
-                          const SizedBox(width: 6),
                           Text(
-                            "Total Zone Allocation Volume: ${(item['PredictedVolume'] ?? 425000).toString()} Liters",
-                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.textDark),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.umbrella_rounded, size: 16, color: AppColors.textLight),
-                          const SizedBox(width: 6),
-                          Text(
-                            "Previous-day rainfall: ${item['PreviousDayRainfall'] ?? 0} mm",
-                            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.schedule_rounded, size: 16, color: AppColors.textLight),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              "Average days since irrigation: ${item['AvgDaysSinceLastIrrigation'] ?? 10}",
-                              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            "${item['ZoneName'] ?? 'Irrigation Zone'}",
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: isCompact ? 16 : 17,
+                              color: AppColors.textDark,
                             ),
                           ),
-                        ],
-                      ),
-                      if (item['Explanation'] != null && item['Explanation'].toString().isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.inputBackground,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.border),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Total Area: ${item['TotalAreaAcres'] ?? item['Size'] ?? 24.5} Acres • ${item['TotalFields'] ?? 8} Registered Fields",
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: isCompact ? 12 : 13,
+                            ),
                           ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
                             children: [
-                              const Icon(Icons.auto_awesome_rounded, size: 16, color: AppColors.emerald),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  item['Explanation'],
-                                  style: const TextStyle(fontSize: 12, color: AppColors.textDark, height: 1.3),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: Colors.blue.withValues(alpha: 0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.water_drop_rounded,
+                                      size: 14,
+                                      color: Colors.blue,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        "Avg Moisture: ${item['AvgSoilMoisture'] ?? item['SoilMoisture'] ?? 21.0}%",
+                                        softWrap: true,
+                                        style: TextStyle(
+                                          fontSize: isCompact ? 11 : 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.blue.shade900,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.deepOrange.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: Colors.deepOrange.withValues(
+                                      alpha: 0.3,
+                                    ),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.thermostat_rounded,
+                                      size: 14,
+                                      color: Colors.deepOrange,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        "Avg Temp: ${item['AvgSoilTemp'] ?? item['Temperature'] ?? 30.5}°C",
+                                        softWrap: true,
+                                        style: TextStyle(
+                                          fontSize: isCompact ? 11 : 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.deepOrange.shade900,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.emerald.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: AppColors.emerald.withValues(
+                                      alpha: 0.3,
+                                    ),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.speed_rounded,
+                                      size: 14,
+                                      color: AppColors.emerald,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        "Zone Score (F1): ${item['urgency_score'] ?? '46.5'}",
+                                        softWrap: true,
+                                        style: TextStyle(
+                                          fontSize: isCompact ? 11 : 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.emerald,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.aquaBlue.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: AppColors.aquaBlue.withValues(
+                                      alpha: 0.3,
+                                    ),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.opacity_rounded,
+                                      size: 14,
+                                      color: AppColors.aquaBlue,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        "Zone Target (F2): ${item['target_water_req_liters'] ?? item['PredictedVolume'] ?? 0} L",
+                                        softWrap: true,
+                                        style: TextStyle(
+                                          fontSize: isCompact ? 11 : 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.aquaBlue,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ],
-                  ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.water_drop_outlined,
+                                size: 16,
+                                color: AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  "Total Zone Allocation Volume: ${(item['PredictedVolume'] ?? 425000).toString()} Liters",
+                                  softWrap: true,
+                                  style: TextStyle(
+                                    fontSize: isCompact ? 12 : 12.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textDark,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.umbrella_rounded,
+                                size: 16,
+                                color: AppColors.textLight,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  "Previous-day rainfall: ${item['PreviousDayRainfall'] ?? 0} mm",
+                                  softWrap: true,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.schedule_rounded,
+                                size: 16,
+                                color: AppColors.textLight,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  "Average days since irrigation: ${item['AvgDaysSinceLastIrrigation'] ?? 10}",
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (item['Explanation'] != null &&
+                              item['Explanation'].toString().isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.inputBackground,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.auto_awesome_rounded,
+                                    size: 16,
+                                    color: AppColors.emerald,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      item['Explanation'],
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.textDark,
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          );
-        },
-      ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }

@@ -16,9 +16,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController otpController = TextEditingController();
   final TextEditingController newPasswordController = TextEditingController();
-  final TextEditingController confirmPasswordController = TextEditingController();
+  final TextEditingController confirmPasswordController =
+      TextEditingController();
 
   bool isLoading = false;
+  bool obscureNewPassword = true;
+  bool obscureConfirmPassword = true;
   int step = 1; // 1 = enter email, 2 = enter OTP, 3 = enter new password
 
   final String baseUrl = AppConfig.apiBaseUrl;
@@ -27,7 +30,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(
+          message,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: bg ?? AppColors.textDark,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -45,23 +51,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     setState(() => isLoading = true);
 
     try {
-      final response = await http.post(
-        Uri.parse("$baseUrl/forgot-password"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"email": email}),
-      ).timeout(const Duration(seconds: 3));
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/forgot-password"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({"email": email}),
+          )
+          .timeout(const Duration(seconds: 20));
 
       final data = jsonDecode(response.body);
 
       if (!mounted) return;
 
       if (response.statusCode == 200) {
-        final devOtp = data['dev_otp'];
         otpController.clear();
         _showMessage(
-          devOtp == null
-              ? (data['message'] ?? "Verification code sent to your email! Please check your inbox.")
-              : "OTP generated! Your Code is: $devOtp (Enter code below)",
+          data['message'] ??
+              "Verification code sent to your email! Please check your inbox.",
           AppColors.emerald,
         );
         setState(() => step = 2);
@@ -72,8 +78,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     } catch (e) {
       if (!mounted) return;
       otpController.clear();
-      _showMessage("Verification code sent! Please check your email.", AppColors.emerald);
-      setState(() => step = 2);
+      _showMessage(
+        "Could not send the verification email. Please try again.",
+        Colors.redAccent,
+      );
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -89,28 +97,36 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     setState(() => isLoading = true);
 
     try {
-      final response = await http.post(
-        Uri.parse("$baseUrl/validate-otp"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "email": emailController.text.trim(),
-          "otp": otp,
-        }),
-      ).timeout(const Duration(seconds: 3));
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/validate-otp"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "email": emailController.text.trim(),
+              "otp": otp,
+            }),
+          )
+          .timeout(const Duration(seconds: 3));
 
       final data = jsonDecode(response.body);
 
       if (!mounted) return;
 
       if (response.statusCode == 200) {
-        _showMessage(data['message'] ?? "OTP verified successfully", AppColors.emerald);
+        _showMessage(
+          data['message'] ?? "OTP verified successfully",
+          AppColors.emerald,
+        );
         setState(() => step = 3);
       } else {
         _showMessage(data['error'] ?? "Invalid OTP code", Colors.redAccent);
       }
     } catch (e) {
       if (!mounted) return;
-      _showMessage("Unable to verify OTP. Please check the code and try again.", Colors.redAccent);
+      _showMessage(
+        "Unable to verify OTP. Please check the code and try again.",
+        Colors.redAccent,
+      );
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -133,21 +149,44 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     setState(() => isLoading = true);
 
     try {
-      await http.post(
-        Uri.parse("$baseUrl/reset-password"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "email": emailController.text.trim(),
-          "otp": otpController.text.trim(),
-          "new_password": newPassword,
-        }),
-      ).timeout(const Duration(seconds: 3));
-    } catch (_) {}
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/reset-password"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "email": emailController.text.trim(),
+              "otp": otpController.text.trim(),
+              "new_password": newPassword,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+      final decoded = jsonDecode(response.body);
+      final data = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{};
 
-    if (!mounted) return;
-    _showMessage("Password reset successful! Please log in.", AppColors.emerald);
-    Navigator.popUntil(context, (route) => route.isFirst);
-    setState(() => isLoading = false);
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        _showMessage(
+          data['message'] ?? "Password reset successful! Please log in.",
+          AppColors.emerald,
+        );
+        Navigator.popUntil(context, (route) => route.isFirst);
+      } else {
+        _showMessage(
+          data['error'] ?? "Password reset failed. Please try again.",
+          Colors.redAccent,
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage(
+        "Could not reach the password reset server. Please try again.",
+        Colors.redAccent,
+      );
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
   }
 
   Widget _buildStep1() {
@@ -200,7 +239,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         Center(
           child: TextButton(
             onPressed: isLoading ? null : requestOtp,
-            child: const Text("Resend Code", style: TextStyle(color: AppColors.emerald, fontWeight: FontWeight.bold)),
+            child: const Text(
+              "Resend Code",
+              style: TextStyle(
+                color: AppColors.emerald,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ),
       ],
@@ -220,14 +265,38 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           controller: newPasswordController,
           labelText: "New Password",
           prefixIcon: Icons.lock_rounded,
-          obscureText: true,
+          obscureText: obscureNewPassword,
+          suffixIcon: IconButton(
+            tooltip: obscureNewPassword ? "Show password" : "Hide password",
+            icon: Icon(
+              obscureNewPassword
+                  ? Icons.visibility_off_rounded
+                  : Icons.visibility_rounded,
+              color: AppColors.textLight,
+            ),
+            onPressed: () {
+              setState(() => obscureNewPassword = !obscureNewPassword);
+            },
+          ),
         ),
         const SizedBox(height: 16),
         CustomTextField(
           controller: confirmPasswordController,
           labelText: "Confirm New Password",
           prefixIcon: Icons.lock_outline_rounded,
-          obscureText: true,
+          obscureText: obscureConfirmPassword,
+          suffixIcon: IconButton(
+            tooltip: obscureConfirmPassword ? "Show password" : "Hide password",
+            icon: Icon(
+              obscureConfirmPassword
+                  ? Icons.visibility_off_rounded
+                  : Icons.visibility_rounded,
+              color: AppColors.textLight,
+            ),
+            onPressed: () {
+              setState(() => obscureConfirmPassword = !obscureConfirmPassword);
+            },
+          ),
         ),
         const SizedBox(height: 24),
         PrimaryButton(

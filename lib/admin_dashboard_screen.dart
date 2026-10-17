@@ -209,6 +209,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return list;
   }
 
+  int? _intValue(dynamic value) =>
+      value is num ? value.toInt() : int.tryParse('$value');
+
+  int? _requestZoneNo(dynamic request) {
+    final explicitZone = _intValue(request['ZoneNo']);
+    if (explicitZone != null) return explicitZone;
+    final match = RegExp(
+      r'Zone\s+(\d+)',
+      caseSensitive: false,
+    ).firstMatch('${request['ZoneName'] ?? ''}');
+    return match == null ? null : int.tryParse(match.group(1)!);
+  }
+
+  Map<String, dynamic>? _liveSensorForRequest(dynamic request) {
+    final farmerId = _intValue(request['farmer_id'] ?? request['FarmerID']);
+    final zoneNo = _requestZoneNo(request);
+    if (farmerId == null || zoneNo == null) return null;
+
+    for (final item in _zoneSensors) {
+      if (item is! Map) continue;
+      final sensor = Map<String, dynamic>.from(item);
+      if (_intValue(sensor['farmerId']) == farmerId &&
+          _intValue(sensor['zoneNo']) == zoneNo) {
+        return sensor;
+      }
+    }
+    return null;
+  }
+
   void _exportCsvReport() {
     if (_waterRequests.isEmpty) return;
 
@@ -221,8 +250,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final reqId = r['RequestID'] ?? 0;
       final farmer = r['farmer_name'] ?? 'Unknown';
       final zone = r['ZoneName'] ?? '';
-      final moist = r['SoilMoisture'] ?? r['soil_moisture'];
-      final temp = r['SoilTemperature'] ?? r['soil_temperature'];
+      final liveSensor = _liveSensorForRequest(r);
+      final moist =
+          r['SoilMoisture'] ?? r['soil_moisture'] ?? liveSensor?['moisture'];
+      final temp =
+          r['SoilTemperature'] ??
+          r['soil_temperature'] ??
+          liveSensor?['temperature'];
       final rain = r['PreviousDayRainfall'] ?? 0.0;
       final area = r['AreaAcres'] ?? r['Size'] ?? 2.5;
       final double? targetLiters = moist is num && temp is num
@@ -1286,11 +1320,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ? "$rawZone (Field #${r['FieldID']})"
                         : rawZone;
 
-                    final moistNum = r['SoilMoisture'] ?? r['soil_moisture'];
+                    // New requests contain an immutable request-time snapshot.
+                    // For older rows created before snapshots were supported,
+                    // show the matching admin-side zone sensor as a fallback.
+                    final liveSensor = _liveSensorForRequest(r);
+                    final moistNum =
+                        r['SoilMoisture'] ??
+                        r['soil_moisture'] ??
+                        liveSensor?['moisture'];
                     final int? moistVal = (moistNum is num) ? moistNum.toInt() : null;
                     final bool isDryDemand = moistVal != null && moistVal < 35;
 
-                    final tempNum = r['SoilTemperature'] ?? r['soil_temperature'];
+                    final tempNum =
+                        r['SoilTemperature'] ??
+                        r['soil_temperature'] ??
+                        liveSensor?['temperature'];
                     final double? tempVal = (tempNum is num) ? tempNum.toDouble() : null;
 
                     final rainNum = r['PreviousDayRainfall'] ?? 0.0;
@@ -1318,7 +1362,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           ),
                         ),
                         DataCell(Text("${r['farmer_name'] ?? 'Unknown'}")),
-                        DataCell(Text('$fieldLabel\n${r['DeviceID'] ?? 'No sensor snapshot'}')),
+                        DataCell(
+                          Text(
+                            '$fieldLabel\n${r['DeviceID'] ?? liveSensor?['deviceId'] ?? 'No sensor reading'}',
+                          ),
+                        ),
                         DataCell(
                           Container(
                             padding: const EdgeInsets.symmetric(

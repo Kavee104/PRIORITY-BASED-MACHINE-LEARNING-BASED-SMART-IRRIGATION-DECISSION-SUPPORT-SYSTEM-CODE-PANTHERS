@@ -1,22 +1,17 @@
-import 'package:flutter/foundation.dart';
-
 class AppConfig {
   static const String _definedApiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
   );
+
+  static const String _cloudApiBaseUrl =
+      'https://priority-based-machine-learning-based-smart-irri-production.up.railway.app';
 
   static String get apiBaseUrl {
     if (_definedApiBaseUrl.isNotEmpty) {
       return _definedApiBaseUrl;
     }
 
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      // Physical phone and development laptop must use the same Wi-Fi network.
-      // Override this at run time if the laptop receives a different LAN IP.
-      return 'http://172.31.98.224:5000';
-    }
-
-    return 'http://localhost:5000';
+    return _cloudApiBaseUrl;
   }
 
   // These project defaults are client-safe public values. They can still be

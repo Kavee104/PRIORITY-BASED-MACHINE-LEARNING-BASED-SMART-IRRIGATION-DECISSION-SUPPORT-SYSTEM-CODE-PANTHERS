@@ -31,11 +31,7 @@ class AuthResponse {
   final String message;
   final UserAccount? user;
 
-  AuthResponse({
-    required this.success,
-    required this.message,
-    this.user,
-  });
+  AuthResponse({required this.success, required this.message, this.user});
 }
 
 class WaterRequest {
@@ -67,19 +63,19 @@ class WaterRequest {
   });
 
   Map<String, dynamic> toJson() => {
-        'RequestID': requestID,
-        'farmer_id': farmerId,
-        'FieldID': fieldID,
-        'ZoneName': zoneName,
-        'farmer_name': farmerName,
-        'Status': status,
-        'RequestTime': requestTime,
-        if (soilMoisture != null) 'SoilMoisture': soilMoisture,
-        if (soilTemperature != null) 'SoilTemperature': soilTemperature,
-        'AreaAcres': areaAcres,
-        'PreviousDayRainfall': previousDayRainfall,
-        'ApprovedAt': approvedAt?.toIso8601String(),
-      };
+    'RequestID': requestID,
+    'farmer_id': farmerId,
+    'FieldID': fieldID,
+    'ZoneName': zoneName,
+    'farmer_name': farmerName,
+    'Status': status,
+    'RequestTime': requestTime,
+    if (soilMoisture != null) 'SoilMoisture': soilMoisture,
+    if (soilTemperature != null) 'SoilTemperature': soilTemperature,
+    'AreaAcres': areaAcres,
+    'PreviousDayRainfall': previousDayRainfall,
+    'ApprovedAt': approvedAt?.toIso8601String(),
+  };
 }
 
 class AuthService {
@@ -98,35 +94,45 @@ class AuthService {
 
   void _initDefaultAccounts() {
     // Seed default role-based accounts (Farmer & Admin)
-    _addAccount(UserAccount(
-      id: 6,
-      username: 'wa',
-      email: 'wa',
-      password: 'sa',
-      name: 'Farmer 6',
-      role: UserRole.farmer,
-    ));
+    _addAccount(
+      UserAccount(
+        id: 6,
+        username: 'wa',
+        email: 'wa',
+        password: 'sa',
+        name: 'Farmer 6',
+        role: UserRole.farmer,
+      ),
+    );
 
-    _addAccount(UserAccount(
-      id: 101,
-      username: 'farmer',
-      email: 'farmer@example.com',
-      password: 'farmer',
-      name: 'Farmer User',
-      role: UserRole.farmer,
-    ));
+    _addAccount(
+      UserAccount(
+        id: 101,
+        username: 'farmer',
+        email: 'farmer@example.com',
+        password: 'farmer',
+        name: 'Farmer User',
+        role: UserRole.farmer,
+      ),
+    );
 
-    _addAccount(UserAccount(
-      id: 301,
-      username: 'admin',
-      email: 'admin@example.com',
-      password: 'admin',
-      name: 'System Admin',
-      role: UserRole.admin,
-    ));
+    _addAccount(
+      UserAccount(
+        id: 301,
+        username: 'admin',
+        email: 'admin@example.com',
+        password: 'admin',
+        name: 'System Admin',
+        role: UserRole.admin,
+      ),
+    );
 
     // Seed initial audit log
-    addAuditLog(action: 'SYSTEM_INIT', user: 'system', details: 'Smart Irrigation Platform Started');
+    addAuditLog(
+      action: 'SYSTEM_INIT',
+      user: 'system',
+      details: 'Smart Irrigation Platform Started',
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -139,7 +145,12 @@ class AuthService {
     return List.unmodifiable(_farmerFields[farmerId]!);
   }
 
-  Map<String, dynamic> addFarmerField({required int farmerId, required int zoneNo, required double size, String? cropType}) {
+  Map<String, dynamic> addFarmerField({
+    required int farmerId,
+    required int zoneNo,
+    required double size,
+    String? cropType,
+  }) {
     final existingFields = _farmerFields[farmerId] ?? [];
     final maxFid = existingFields.fold<int>(0, (max, f) {
       final fid = int.tryParse("${f['FieldID']}") ?? 0;
@@ -156,7 +167,11 @@ class AuthService {
     };
     _farmerFields.putIfAbsent(farmerId, () => []);
     _farmerFields[farmerId]!.insert(0, field);
-    addAuditLog(action: 'FIELD_CREATED', user: 'farmer:$farmerId', details: 'Added field #$newId for farmer $farmerId');
+    addAuditLog(
+      action: 'FIELD_CREATED',
+      user: 'farmer:$farmerId',
+      details: 'Added field #$newId for farmer $farmerId',
+    );
     return field;
   }
 
@@ -194,7 +209,8 @@ class AuthService {
     double? previousDayRainfall,
   }) {
     final now = DateTime.now();
-    final timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} (Just now)";
+    final timeStr =
+        "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} (Just now)";
 
     final req = WaterRequest(
       requestID: requestId ?? _nextRequestId++,
@@ -322,7 +338,9 @@ class AuthService {
       }
 
       final avgMoist = (totalMoist / list.length).roundToDouble();
-      final avgTemp = double.parse((totalTemp / list.length).toStringAsFixed(1));
+      final avgTemp = double.parse(
+        (totalTemp / list.length).toStringAsFixed(1),
+      );
       final avgPreviousDayRainfall = totalPreviousDayRainfall / list.length;
       final avgDaysSinceLastIrrigation =
           totalDaysSinceLastIrrigation / list.length;
@@ -353,11 +371,16 @@ class AuthService {
         'PredictedVolume': targetWaterLiters,
         'PreviousDayRainfall': avgPreviousDayRainfall,
         'Date': 'Today',
-        'Explanation': '[Zone Consolidated] ${list.length} active field requests grouped into $zName. Zone Avg Moisture: $avgMoist%, Zone Avg Temp: $avgTemp°C, Avg Days Since Irrigation: ${avgDaysSinceLastIrrigation.toStringAsFixed(1)}, Previous-day Rainfall: ${avgPreviousDayRainfall.toStringAsFixed(1)} mm, Area: ${totalAreaAcres.toStringAsFixed(1)} acres. Urgency Score: $urgencyScore (Formula 1). Target Water Needed: $targetWaterLiters L (Formula 2).',
+        'Explanation':
+            '[Zone Consolidated] ${list.length} active field requests grouped into $zName. Zone Avg Moisture: $avgMoist%, Zone Avg Temp: $avgTemp°C, Avg Days Since Irrigation: ${avgDaysSinceLastIrrigation.toStringAsFixed(1)}, Previous-day Rainfall: ${avgPreviousDayRainfall.toStringAsFixed(1)} mm, Area: ${totalAreaAcres.toStringAsFixed(1)} acres. Urgency Score: $urgencyScore (Formula 1). Target Water Needed: $targetWaterLiters L (Formula 2).',
       });
     });
 
-    schedule.sort((a, b) => (b['urgency_score'] as double).compareTo(a['urgency_score'] as double));
+    schedule.sort(
+      (a, b) => (b['urgency_score'] as double).compareTo(
+        a['urgency_score'] as double,
+      ),
+    );
 
     for (int i = 0; i < schedule.length; i++) {
       schedule[i]['Rank'] = i + 1;
@@ -369,9 +392,14 @@ class AuthService {
   // -------------------------------------------------------------------------
   // Audit Trail State
   // -------------------------------------------------------------------------
-  void addAuditLog({required String action, required String user, required String details}) {
+  void addAuditLog({
+    required String action,
+    required String user,
+    required String details,
+  }) {
     final now = DateTime.now();
-    final timestamp = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}";
+    final timestamp =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}";
 
     _auditLogs.insert(0, {
       'timestamp': timestamp,
@@ -395,13 +423,17 @@ class AuthService {
     int? customId,
   }) {
     final cleanUsername = username.trim().toLowerCase();
-    final cleanEmail = (email ?? '$cleanUsername@example.com').trim().toLowerCase();
+    final cleanEmail = (email ?? '$cleanUsername@example.com')
+        .trim()
+        .toLowerCase();
 
     if (_accounts.containsKey(cleanUsername)) {
       return false;
     }
 
-    UserRole role = roleStr.toLowerCase() == 'admin' ? UserRole.admin : UserRole.farmer;
+    UserRole role = roleStr.toLowerCase() == 'admin'
+        ? UserRole.admin
+        : UserRole.farmer;
 
     final newId = customId ?? (DateTime.now().millisecondsSinceEpoch % 100000);
     final account = UserAccount(
@@ -417,7 +449,8 @@ class AuthService {
     addAuditLog(
       action: 'USER_CREATED',
       user: 'admin',
-      details: 'Created user "${account.username}" with ${role.name.toUpperCase()} role',
+      details:
+          'Created user "${account.username}" with ${role.name.toUpperCase()} role',
     );
     return true;
   }
@@ -461,20 +494,28 @@ class AuthService {
     final cleanIdentifier = identifier.trim().toLowerCase();
     final cleanPassword = password.trim();
     sessionToken = null;
+    String? backendFailureMessage;
 
     // A backend session provides the farmer identity for owner-scoped IoT data.
     // Keep the existing local demo account path as an offline fallback.
     try {
-      final response = await http.post(
-        Uri.parse("${AppConfig.apiBaseUrl}/login"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"email": identifier, "password": password}),
-      ).timeout(const Duration(seconds: 4));
+      final response = await http
+          .post(
+            Uri.parse("${AppConfig.apiBaseUrl}/login"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({"email": identifier, "password": password}),
+          )
+          .timeout(const Duration(seconds: 20));
       final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
-        final serverRole = data['role'] == 'admin' ? UserRole.admin : UserRole.farmer;
+        final serverRole = data['role'] == 'admin'
+            ? UserRole.admin
+            : UserRole.farmer;
         if (serverRole != targetRole && serverRole != UserRole.admin) {
-          return AuthResponse(success: false, message: 'Access denied for this role');
+          return AuthResponse(
+            success: false,
+            message: 'Access denied for this role',
+          );
         }
         final user = UserAccount(
           id: data['farmer_id'] ?? data['id'] ?? 999,
@@ -486,10 +527,19 @@ class AuthService {
         );
         sessionToken = data['session_token'] as String?;
         _addAccount(user);
-        return AuthResponse(success: true, message: 'Login successful', user: user);
+        return AuthResponse(
+          success: true,
+          message: 'Login successful',
+          user: user,
+        );
       }
+      if (data is Map) {
+        backendFailureMessage = (data['error'] ?? data['message'])?.toString();
+      }
+      backendFailureMessage ??= 'Login failed (HTTP ${response.statusCode})';
     } catch (_) {
       // A local demo account can still be used when the backend is offline.
+      backendFailureMessage = 'Could not connect to the login server';
     }
 
     // Existing in-memory demo accounts.
@@ -505,13 +555,15 @@ class AuthService {
           );
           return AuthResponse(
             success: true,
-            message: "Login successful (${account.roleString.toUpperCase()} Role Verified)",
+            message:
+                "Login successful (${account.roleString.toUpperCase()} Role Verified)",
             user: account,
           );
         } else {
           return AuthResponse(
             success: false,
-            message: "Access Denied (RBAC): Account '${account.username}' has ${account.roleString.toUpperCase()} role and cannot access ${targetRole.name.toUpperCase()} portal.",
+            message:
+                "Access Denied (RBAC): Account '${account.username}' has ${account.roleString.toUpperCase()} role and cannot access ${targetRole.name.toUpperCase()} portal.",
           );
         }
       } else {
@@ -522,9 +574,6 @@ class AuthService {
       }
     }
 
-    return AuthResponse(
-      success: false,
-      message: "Invalid credentials or backend unavailable for '$identifier'",
-    );
+    return AuthResponse(success: false, message: backendFailureMessage);
   }
 }

@@ -20,7 +20,8 @@ class _SignupScreenState extends State<SignupScreen> {
   final TextEditingController lastNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmPasswordController = TextEditingController();
+  final TextEditingController confirmPasswordController =
+      TextEditingController();
 
   bool isLoading = false;
   bool obscurePassword = true;
@@ -37,7 +38,10 @@ class _SignupScreenState extends State<SignupScreen> {
     final password = passwordController.text.trim();
     final confirmPassword = confirmPasswordController.text.trim();
 
-    if (firstName.isEmpty || lastName.isEmpty || email.isEmpty || password.isEmpty) {
+    if (firstName.isEmpty ||
+        lastName.isEmpty ||
+        email.isEmpty ||
+        password.isEmpty) {
       _showMessage("Please fill all required fields", Colors.orangeAccent);
       return;
     }
@@ -70,19 +74,23 @@ class _SignupScreenState extends State<SignupScreen> {
     });
 
     try {
-      final response = await http.post(
-        Uri.parse("$baseUrl/signup"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "f_name": firstName,
-          "l_name": lastName,
-          "email": email,
-          "password": password,
-        }),
-      ).timeout(const Duration(seconds: 4));
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/signup"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "f_name": firstName,
+              "l_name": lastName,
+              "email": email,
+              "password": password,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
 
       final data = jsonDecode(response.body);
-      final newFarmerId = (data is Map && data['farmer_id'] is int) ? data['farmer_id'] as int : null;
+      final newFarmerId = (data is Map && data['farmer_id'] is int)
+          ? data['farmer_id'] as int
+          : null;
 
       if (!mounted) return;
 
@@ -96,7 +104,10 @@ class _SignupScreenState extends State<SignupScreen> {
           customId: newFarmerId,
         );
         TextInput.finishAutofillContext(shouldSave: true);
-        _showMessage("Signup successful! You can now login.", AppColors.emerald);
+        _showMessage(
+          "Signup successful! You can now login.",
+          AppColors.emerald,
+        );
         Navigator.popUntil(context, (route) => route.isFirst);
       } else {
         _showMessage(
@@ -122,7 +133,10 @@ class _SignupScreenState extends State<SignupScreen> {
   void _showMessage(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(
+          message,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -164,7 +178,10 @@ class _SignupScreenState extends State<SignupScreen> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     "Sign up for AI-powered smart irrigation access",
-                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 28),
@@ -201,7 +218,13 @@ class _SignupScreenState extends State<SignupScreen> {
                   const SizedBox(height: 4),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text(emailError!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    child: Text(
+                      emailError!,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ],
                 const SizedBox(height: 16),
@@ -213,17 +236,26 @@ class _SignupScreenState extends State<SignupScreen> {
                   obscureText: obscurePassword,
                   suffixIcon: IconButton(
                     icon: Icon(
-                      obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                      obscurePassword
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded,
                       color: AppColors.textLight,
                     ),
-                    onPressed: () => setState(() => obscurePassword = !obscurePassword),
+                    onPressed: () =>
+                        setState(() => obscurePassword = !obscurePassword),
                   ),
                 ),
                 if (passwordError != null) ...[
                   const SizedBox(height: 4),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text(passwordError!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    child: Text(
+                      passwordError!,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ],
                 const SizedBox(height: 16),
@@ -237,10 +269,13 @@ class _SignupScreenState extends State<SignupScreen> {
                   onSubmitted: (_) => signupUser(),
                   suffixIcon: IconButton(
                     icon: Icon(
-                      obscureConfirm ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                      obscureConfirm
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded,
                       color: AppColors.textLight,
                     ),
-                    onPressed: () => setState(() => obscureConfirm = !obscureConfirm),
+                    onPressed: () =>
+                        setState(() => obscureConfirm = !obscureConfirm),
                   ),
                 ),
                 const SizedBox(height: 28),

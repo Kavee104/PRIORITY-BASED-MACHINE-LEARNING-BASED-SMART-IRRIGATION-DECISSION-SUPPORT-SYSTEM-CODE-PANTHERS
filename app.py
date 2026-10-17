@@ -23,6 +23,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
 
 app = Flask(__name__)
+IS_RAILWAY = bool(
+  os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_PROJECT_ID')
+)
+LOCAL_JSON_WRITES_ENABLED = os.environ.get(
+  'ENABLE_LOCAL_JSON_WRITES', '0' if IS_RAILWAY else '1'
+).strip().lower() in {'1', 'true', 'yes', 'on'}
 if CORS is not None:
   CORS(app, resources={r"/*": {"origins": "*"}})
 else:
@@ -71,6 +77,8 @@ OTP_EXPIRY_SECONDS = 10 * 60
 password_reset_otps = {}
 
 def _write_users_file(u):
+  if not LOCAL_JSON_WRITES_ENABLED:
+    return
   try:
     with open(USERS_FILE, 'w', encoding='utf-8') as fh:
       json.dump(u, fh, indent=2, ensure_ascii=False)
@@ -146,6 +154,8 @@ FIELDS_FILE = os.path.join(os.path.dirname(__file__), 'fields.json')
 REQUESTS_FILE = os.path.join(os.path.dirname(__file__), 'requests.json')
 
 def _write_fields_file(f_fields):
+  if not LOCAL_JSON_WRITES_ENABLED:
+    return
   try:
     # Convert integer keys to string keys for JSON serialization
     serializable = {str(k): v for k, v in f_fields.items()}
@@ -165,6 +175,8 @@ def _load_fields():
   return {}
 
 def _write_requests_file(w_requests):
+  if not LOCAL_JSON_WRITES_ENABLED:
+    return
   try:
     with open(REQUESTS_FILE, 'w', encoding='utf-8') as fh:
       json.dump(w_requests, fh, indent=2, ensure_ascii=False)
@@ -656,7 +668,10 @@ def _arduino_serial_loop():
 # Start the legacy Arduino Uno serial reader unless the deployment uses the
 # ESP32 Wi-Fi client. In ESP32 mode, leaving this reader enabled would seize
 # the board's COM port and prevent uploads or use of Arduino Serial Monitor.
-_serial_reader_enabled = os.getenv('ENABLE_ARDUINO_SERIAL_READER', '1').strip().lower() not in {
+_serial_reader_default = '0' if IS_RAILWAY else '1'
+_serial_reader_enabled = os.getenv(
+  'ENABLE_ARDUINO_SERIAL_READER', _serial_reader_default
+).strip().lower() not in {
   '0', 'false', 'no', 'off'
 }
 if _serial_reader_enabled:
@@ -1027,6 +1042,65 @@ def _sync_cached_farmers_to_mysql():
     conn.close()
 
 
+def _load_users_from_mysql():
+  """Replace the runtime authentication cache with persistent MySQL users."""
+  conn = get_db_connection()
+  if conn is None:
+    return 0
+
+  cursor = None
+  try:
+    cursor = conn.cursor(dictionary=True)
+    _ensure_users_table(cursor)
+    cursor.execute(
+      "SELECT AccountID, Username, Email, PasswordHash, FirstName, "
+      "LastName, Role FROM users ORDER BY UserID"
+    )
+    rows = cursor.fetchall()
+    if not rows:
+      return 0
+
+    persistent_users = {}
+    for row in rows:
+      username = str(row.get('Username') or '').strip().lower()
+      email = str(row.get('Email') or '').strip().lower()
+      if not username and not email:
+        continue
+      first_name = str(row.get('FirstName') or '').strip()
+      last_name = str(row.get('LastName') or '').strip()
+      account = {
+        'id': row.get('AccountID'),
+        'password_hash': row.get('PasswordHash') or '',
+        'role': str(row.get('Role') or 'farmer').lower(),
+        'email': email or None,
+        'name': f'{first_name} {last_name}'.strip() or username or email,
+      }
+      if username:
+        persistent_users[username] = account
+      if email:
+        persistent_users[email] = account
+
+    if persistent_users:
+      users.clear()
+      users.update(persistent_users)
+    return len(rows)
+  except Exception as exc:
+    print('MySQL user cache load error:', exc)
+    return 0
+  finally:
+    if cursor is not None:
+      cursor.close()
+    conn.close()
+
+
+def initialize_persistent_users():
+  """Create/sync the user table, then use MySQL as the runtime auth source."""
+  _sync_cached_farmers_to_mysql()
+  loaded = _load_users_from_mysql()
+  print(f'Loaded {loaded} persistent user account(s) from MySQL.')
+  return loaded
+
+
 @app.route('/signup', methods=['POST'])
 def farmer_signup():
   data = request.get_json(force=True)
@@ -1139,15 +1213,16 @@ def auth_login():
   password = data.get('password')
   if not username or not password:
     return jsonify({'status': 'error', 'message': 'username and password required'}), 400
-  user = users.get(username)
+  matched_username, user = _find_user(username)
   if not user:
     return jsonify({'status': 'error', 'message': 'invalid credentials'}), 401
   if not check_password_hash(user['password_hash'], password):
     return jsonify({'status': 'error', 'message': 'invalid credentials'}), 401
   # For simplicity return role. In production return a JWT or session cookie.
-  _audit('USER_LOGIN', username, f'Logged in via /auth/login (role: {user["role"]})')
-  return jsonify({'status': 'success', 'username': username, 'role': user['role'],
-                  'farmer_id': user.get('id', 101), 'session_token': _session_token(username, user)}), 200
+  _audit('USER_LOGIN', matched_username, f'Logged in via /auth/login (role: {user["role"]})')
+  return jsonify({'status': 'success', 'username': matched_username, 'role': user['role'],
+                  'farmer_id': user.get('id', 101),
+                  'session_token': _session_token(matched_username, user)}), 200
 
 
 @app.route('/login', methods=['POST'])
@@ -1545,6 +1620,20 @@ def list_routes():
   for rule in app.url_map.iter_rules():
     rules.append({'endpoint': rule.endpoint, 'rule': str(rule), 'methods': list(rule.methods)})
   return jsonify({'routes': rules}), 200
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+  """Lightweight Railway health check without exposing configuration values."""
+  conn = get_db_connection()
+  database_ready = conn is not None
+  if conn is not None:
+    conn.close()
+  return jsonify({
+    'status': 'ok' if database_ready else 'degraded',
+    'database': 'connected' if database_ready else 'unavailable',
+    'model_loaded': water_release_model is not None,
+  }), 200 if database_ready else 503
 
 
 # ---------------------------------------------------------------------------
@@ -2174,7 +2263,8 @@ def predict_water_release():
 
 
 if __name__ == '__main__':
-  _sync_cached_farmers_to_mysql()
+  initialize_persistent_users()
   app.run(host=os.environ.get('API_HOST', '127.0.0.1'),
-          port=int(os.environ.get('API_PORT', '5000')), debug=False)
+          port=int(os.environ.get('PORT', os.environ.get('API_PORT', '5000'))),
+          debug=False)
 

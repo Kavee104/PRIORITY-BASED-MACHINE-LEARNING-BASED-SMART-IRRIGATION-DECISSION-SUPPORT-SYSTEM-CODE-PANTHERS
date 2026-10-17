@@ -3,12 +3,17 @@
 import os
 
 
+def _setting(local_name, railway_name, default):
+    """Read local variable names first, then Railway MySQL aliases."""
+    return os.environ.get(local_name) or os.environ.get(railway_name) or default
+
+
 MYSQL_CONFIG = {
-    'host': os.environ.get('MYSQL_HOST', 'localhost'),
-    'user': os.environ.get('MYSQL_USER', 'root'),
-    'password': os.environ.get('MYSQL_PASSWORD', ''),
-    'database': os.environ.get('MYSQL_DATABASE', 'smart_irrigation_db'),
-    'port': int(os.environ.get('MYSQL_PORT', '3306')),
+    'host': _setting('MYSQL_HOST', 'MYSQLHOST', 'localhost'),
+    'user': _setting('MYSQL_USER', 'MYSQLUSER', 'root'),
+    'password': _setting('MYSQL_PASSWORD', 'MYSQLPASSWORD', ''),
+    'database': _setting('MYSQL_DATABASE', 'MYSQLDATABASE', 'smart_irrigation_db'),
+    'port': int(_setting('MYSQL_PORT', 'MYSQLPORT', '3306')),
     'autocommit': True,
 }
 

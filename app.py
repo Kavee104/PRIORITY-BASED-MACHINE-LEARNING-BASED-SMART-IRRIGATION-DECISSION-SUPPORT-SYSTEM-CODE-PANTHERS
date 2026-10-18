@@ -482,32 +482,11 @@ def _reset_user_password(role):
 
   new_password_hash = generate_password_hash(new_password)
 
-  if user.get('role') == 'farmer':
-    farmer_email = (user.get('email') or identifier).strip().lower()
-    conn = get_db_connection()
-    if conn is not None:
-      cursor = None
-      try:
-        cursor = conn.cursor()
-        cursor.execute(
-          "UPDATE farmer SET Password = %s "
-          "WHERE FarmerID = %s OR LOWER(Email) = LOWER(%s)",
-          (new_password_hash, user.get('id'), farmer_email),
-        )
-        conn.commit()
-      except Exception as exc:
-        # The JSON account store is the authentication source used by this
-        # prototype, so a temporary MySQL problem must not block a verified
-        # password reset. Keep MySQL synchronization best-effort.
-        print('MySQL Password Reset Sync Error:', exc)
-        try:
-          conn.rollback()
-        except Exception:
-          pass
-      finally:
-        if cursor is not None:
-          cursor.close()
-        conn.close()
+  persisted = _persist_password_hash(username, user, new_password_hash)
+  if not persisted and not LOCAL_JSON_WRITES_ENABLED:
+    return jsonify({
+      'error': 'Could not save the new password. Please try again.'
+    }), 503
 
   target_id = user.get('id')
   target_email = (user.get('email') or identifier).strip().lower()
@@ -968,6 +947,56 @@ def _ensure_users_table(cursor):
   cursor.execute(USERS_TABLE_SQL)
 
 
+def _persist_password_hash(login_name, account, password_hash):
+  """Persist a password change to the durable MySQL authentication store."""
+  conn = get_db_connection()
+  if conn is None:
+    return False
+
+  cursor = None
+  try:
+    cursor = conn.cursor()
+    _ensure_users_table(cursor)
+
+    canonical_login = next(
+      (key for key, record in users.items()
+       if record is account and '@' not in key),
+      login_name,
+    ).strip().lower()
+    email = str(account.get('email') or '').strip().lower()
+    role = str(account.get('role') or 'farmer').strip().lower()
+    full_name = str(account.get('name') or '').strip()
+    name_parts = full_name.split(maxsplit=1)
+    first_name = name_parts[0] if name_parts else ''
+    last_name = name_parts[1] if len(name_parts) > 1 else ''
+
+    _upsert_mysql_user(
+      cursor, account.get('id'), canonical_login, email, password_hash,
+      first_name, last_name, role,
+    )
+
+    if role == 'farmer':
+      cursor.execute(
+        "UPDATE farmer SET Password = %s "
+        "WHERE FarmerID = %s OR LOWER(Email) = LOWER(%s)",
+        (password_hash, account.get('id'), email),
+      )
+
+    conn.commit()
+    return True
+  except Exception as exc:
+    print('MySQL Password Persistence Error:', exc)
+    try:
+      conn.rollback()
+    except Exception:
+      pass
+    return False
+  finally:
+    if cursor is not None:
+      cursor.close()
+    conn.close()
+
+
 def _upsert_mysql_user(cursor, account_id, username, email, password_hash,
                        first_name, last_name, role):
   cursor.execute(
@@ -1192,7 +1221,25 @@ def change_password():
   if not user or not check_password_hash(user.get('password_hash', ''), old_password):
     return jsonify({'status': 'error', 'message': 'Incorrect current password'}), 400
 
-  users[matched_uname]['password_hash'] = generate_password_hash(new_password)
+  new_password_hash = generate_password_hash(new_password)
+  persisted = _persist_password_hash(matched_uname, user, new_password_hash)
+  if not persisted and not LOCAL_JSON_WRITES_ENABLED:
+    return jsonify({
+      'status': 'error',
+      'message': 'Could not save the new password. Please try again.'
+    }), 503
+
+  target_id = user.get('id')
+  target_email = str(user.get('email') or username).strip().lower()
+  for cached_user in users.values():
+    cached_email = str(cached_user.get('email') or '').strip().lower()
+    if (
+        cached_user is user
+        or (target_id is not None and cached_user.get('id') == target_id)
+        or (target_email and cached_email == target_email)
+    ):
+      cached_user['password_hash'] = new_password_hash
+
   _write_users_file(users)
   _audit('PASSWORD_CHANGED', matched_uname, 'Updated account password')
   return jsonify({'status': 'success', 'message': 'Password updated successfully'}), 200

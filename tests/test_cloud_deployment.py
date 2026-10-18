@@ -36,6 +36,38 @@ class _UserConnection:
         self.closed = True
 
 
+class _PasswordCursor:
+    def __init__(self):
+        self.statements = []
+        self.closed = False
+
+    def execute(self, sql, params=()):
+        self.statements.append((sql, params))
+
+    def close(self):
+        self.closed = True
+
+
+class _PasswordConnection:
+    def __init__(self):
+        self.password_cursor = _PasswordCursor()
+        self.committed = False
+        self.rolled_back = False
+        self.closed = False
+
+    def cursor(self):
+        return self.password_cursor
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        self.closed = True
+
+
 class CloudDeploymentTests(unittest.TestCase):
     def test_cloud_schema_is_additive_and_complete(self):
         sql = Path('cloud_schema.sql').read_text(encoding='utf-8')
@@ -85,6 +117,40 @@ class CloudDeploymentTests(unittest.TestCase):
 
         self.assertTrue(connection.user_cursor.closed)
         self.assertTrue(connection.closed)
+
+    def test_password_change_persists_to_users_and_farmer_tables(self):
+        account = {
+            'id': 6,
+            'email': 'farmer6@example.com',
+            'name': 'Test Farmer',
+            'role': 'farmer',
+            'password_hash': 'old-hash',
+        }
+        connection = _PasswordConnection()
+
+        with patch.object(backend, 'get_db_connection',
+                          return_value=connection), \
+             patch.dict(backend.users, {
+                 'farmer6': account,
+                 'farmer6@example.com': account,
+             }, clear=True):
+            persisted = backend._persist_password_hash(
+                'farmer6@example.com', account, 'new-hash')
+
+        self.assertTrue(persisted)
+        self.assertTrue(connection.committed)
+        self.assertFalse(connection.rolled_back)
+        sql = '\n'.join(statement for statement, _
+                        in connection.password_cursor.statements)
+        self.assertIn('INSERT INTO users', sql)
+        self.assertIn('UPDATE farmer SET Password', sql)
+        self.assertTrue(connection.password_cursor.closed)
+        self.assertTrue(connection.closed)
+
+    def test_password_persistence_reports_database_unavailable(self):
+        with patch.object(backend, 'get_db_connection', return_value=None):
+            self.assertFalse(backend._persist_password_hash(
+                'farmer6', {'role': 'farmer'}, 'new-hash'))
 
 
 if __name__ == '__main__':

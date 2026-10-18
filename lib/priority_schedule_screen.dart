@@ -19,7 +19,6 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
   bool isLoading = true;
   String? errorMessage;
   List<dynamic> schedule = [];
-  bool _isWeatherLoading = false;
 
   String releaseStatus = 'Low';
   String allocationPolicy = 'PRIORITY_BASED';
@@ -32,11 +31,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
     fetchSchedule();
   }
 
-  Future<void> _fetchWeatherButtonPressed() async {
-    setState(() {
-      _isWeatherLoading = true;
-    });
-
+  Future<void> fetchWeatherTelemetry() async {
     try {
       final w = await WeatherService.fetchWeatherByCoords(
         lat: 6.9271,
@@ -114,12 +109,6 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Weather telemetry updated successfully')),
       );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isWeatherLoading = false;
-        });
-      }
     }
   }
 
@@ -220,23 +209,6 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppColors.emerald),
             onPressed: isLoading ? null : fetchSchedule,
-          ),
-          IconButton(
-            icon: _isWeatherLoading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.aquaBlue,
-                    ),
-                  )
-                : const Icon(
-                    Icons.wb_sunny_rounded,
-                    color: Colors.orangeAccent,
-                  ),
-            onPressed: _isWeatherLoading ? null : _fetchWeatherButtonPressed,
-            tooltip: 'Live Weather',
           ),
           const SizedBox(width: 8),
         ],

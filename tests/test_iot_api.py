@@ -174,6 +174,28 @@ class IotApiTests(unittest.TestCase):
         self.assertEqual(admin_response.status_code, 200)
         self.assertEqual(farmer_response.status_code, 401)
 
+    def test_builtin_admin_login_uses_railway_admin_password(self):
+        stale_admin = {
+            'id': 1,
+            'role': 'admin',
+            'password_hash': backend.generate_password_hash('old-password'),
+        }
+        with patch.dict(backend.os.environ, {
+                'ADMIN_PASSWORD': 'current-railway-password',
+             }), patch.dict(backend.users, {'admin': stale_admin}, clear=True):
+            accepted = self.client.post('/login', json={
+                'email': 'admin',
+                'password': 'current-railway-password',
+            })
+            rejected = self.client.post('/login', json={
+                'email': 'admin',
+                'password': 'old-password',
+            })
+
+        self.assertEqual(accepted.status_code, 200)
+        self.assertTrue(accepted.json.get('session_token'))
+        self.assertEqual(rejected.status_code, 401)
+
     def test_status_expires_after_timeout(self):
         old = datetime.now(timezone.utc) - timedelta(seconds=backend.IOT_OFFLINE_SECONDS + 2)
         recent = datetime.now(timezone.utc)

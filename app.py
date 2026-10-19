@@ -1299,6 +1299,33 @@ def app_login():
   email = data.get('email', '').strip().lower()
   password = data.get('password', '').strip()
 
+  # ADMIN_PASSWORD is the production source of truth for the built-in admin.
+  # Check it directly so a stale MySQL password hash cannot lock the admin out
+  # after the Railway variable is changed and the service is redeployed.
+  configured_admin_password = os.environ.get(
+    'ADMIN_PASSWORD', DEFAULT_ADMIN_PASSWORD)
+  if email == DEFAULT_ADMIN_USERNAME:
+    if not secrets.compare_digest(password, configured_admin_password):
+      return jsonify({'error': 'Invalid email or password'}), 401
+
+    admin_user = users.get(DEFAULT_ADMIN_USERNAME)
+    if not admin_user or admin_user.get('role') != 'admin':
+      admin_user = {
+        'id': 1,
+        'password_hash': generate_password_hash(configured_admin_password),
+        'role': 'admin',
+        'name': 'Admin',
+      }
+      users[DEFAULT_ADMIN_USERNAME] = admin_user
+
+    return jsonify({
+      'status': 'success',
+      'name': 'Admin',
+      'role': 'admin',
+      'farmer_id': admin_user.get('id', 1),
+      'session_token': _session_token(DEFAULT_ADMIN_USERNAME, admin_user),
+    }), 200
+
   user = users.get(email)
   if not user:
     for u, info in users.items():
@@ -1702,6 +1729,7 @@ def health_check():
     'database': 'connected' if database_ready else 'unavailable',
     'model_loaded': water_release_model is not None,
     'admin_session_auth': True,
+    'admin_login_source': 'environment',
   }), 200 if database_ready else 503
 
 

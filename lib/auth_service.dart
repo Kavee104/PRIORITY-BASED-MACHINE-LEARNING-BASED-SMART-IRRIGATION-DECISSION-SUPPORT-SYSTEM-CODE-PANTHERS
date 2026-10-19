@@ -495,6 +495,7 @@ class AuthService {
     final cleanPassword = password.trim();
     sessionToken = null;
     String? backendFailureMessage;
+    bool backendResponded = false;
 
     // A backend session provides the farmer identity for owner-scoped IoT data.
     // Keep the existing local demo account path as an offline fallback.
@@ -506,6 +507,7 @@ class AuthService {
             body: jsonEncode({"email": identifier, "password": password}),
           )
           .timeout(const Duration(seconds: 20));
+      backendResponded = true;
       final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
         final serverRole = data['role'] == 'admin'
@@ -542,10 +544,26 @@ class AuthService {
       backendFailureMessage = 'Could not connect to the login server';
     }
 
+    // If the cloud server answered, its authentication result is final. Do
+    // not silently accept a matching demo account after a 401 response,
+    // because that opens an admin screen without a valid cloud session.
+    if (backendResponded) {
+      return AuthResponse(
+        success: false,
+        message: backendFailureMessage ?? 'Cloud login failed',
+      );
+    }
+
     // Existing in-memory demo accounts.
     if (_accounts.containsKey(cleanIdentifier)) {
       final account = _accounts[cleanIdentifier]!;
       if (account.password == cleanPassword) {
+        if (account.role == UserRole.admin) {
+          return AuthResponse(
+            success: false,
+            message: 'Admin login requires a connection to the cloud server',
+          );
+        }
         // Enforce Role-Based Access Control (RBAC)
         if (account.role == targetRole || account.role == UserRole.admin) {
           addAuditLog(

@@ -1701,6 +1701,7 @@ def health_check():
     'status': 'ok' if database_ready else 'degraded',
     'database': 'connected' if database_ready else 'unavailable',
     'model_loaded': water_release_model is not None,
+    'admin_session_auth': True,
   }), 200 if database_ready else 503
 
 

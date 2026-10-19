@@ -81,6 +81,13 @@ class IotApiTests(unittest.TestCase):
             response = self.client.post('/sensor-data', json=self.payload)
         self.assertEqual(response.status_code, 503)
 
+    def test_mysql_utc_request_time_is_displayed_in_sri_lanka_time(self):
+        utc_time = datetime(2026, 10, 19, 7, 30, 0)
+        self.assertEqual(
+            backend._format_utc_as_local(utc_time),
+            '2026-10-19 13:00:00',
+        )
+
     def test_device_write_checks_token_and_commits(self):
         valid_hash = hashlib.sha256(self.payload['deviceToken'].encode()).hexdigest()
         connection = FakeConnection({'id': 7, 'status': 'OFFLINE',

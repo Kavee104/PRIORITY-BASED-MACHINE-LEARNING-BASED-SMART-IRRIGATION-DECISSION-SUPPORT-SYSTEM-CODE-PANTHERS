@@ -10,6 +10,7 @@ import time
 import math
 import secrets
 import datetime
+from zoneinfo import ZoneInfo
 from email.message import EmailMessage
 from flask import Flask, jsonify, request
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -21,6 +22,26 @@ except ImportError:
   CORS = None
 from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
+
+APP_TIMEZONE = ZoneInfo(os.environ.get('APP_TIMEZONE', 'Asia/Colombo'))
+
+
+def _local_now():
+  return datetime.datetime.now(datetime.timezone.utc).astimezone(APP_TIMEZONE)
+
+
+def _format_utc_as_local(value):
+  """Format a MySQL UTC DATETIME value in the application's local timezone."""
+  if isinstance(value, str):
+    try:
+      value = datetime.datetime.fromisoformat(value)
+    except ValueError:
+      return value
+  if not isinstance(value, datetime.datetime):
+    return str(value)
+  if value.tzinfo is None:
+    value = value.replace(tzinfo=datetime.timezone.utc)
+  return value.astimezone(APP_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
 
 app = Flask(__name__)
 IS_RAILWAY = bool(
@@ -308,9 +329,8 @@ audit_log = []  # list of dicts with keys: timestamp, action, user, details
 
 def _audit(action, user='system', details=''):
   """Append an entry to the audit trail."""
-  import datetime
   audit_log.insert(0, {
-    'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    'timestamp': _local_now().strftime('%Y-%m-%d %H:%M:%S'),
     'action': action,
     'user': user,
     'details': details,
@@ -1730,6 +1750,7 @@ def health_check():
     'model_loaded': water_release_model is not None,
     'admin_session_auth': True,
     'admin_login_source': 'environment',
+    'request_timezone': str(APP_TIMEZONE),
   }), 200 if database_ready else 503
 
 
@@ -1916,7 +1937,7 @@ def submit_water_request():
   try:
     cursor = conn.cursor()
     cursor.execute(
-      "INSERT INTO irrigation_request (FarmerID, FieldID, RequestTime, Status) VALUES (%s, %s, NOW(), 'Pending')",
+      "INSERT INTO irrigation_request (FarmerID, FieldID, RequestTime, Status) VALUES (%s, %s, UTC_TIMESTAMP(), 'Pending')",
       (farmer_id, field_id)
     )
     new_req_id = cursor.lastrowid
@@ -1940,7 +1961,7 @@ def submit_water_request():
     'FieldID': field_id,
     'ZoneName': zone_name,
     'Status': 'Pending',
-    'RequestTime': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    'RequestTime': _local_now().strftime('%Y-%m-%d %H:%M:%S'),
     'farmer_name': f'Farmer #{farmer_id}',
     'AreaAcres': area_acres,
     'ZoneNo': zone_no,
@@ -1997,7 +2018,7 @@ def get_my_requests(farmer_id):
       )
       rows = cursor.fetchall()
       for r in rows:
-        req_time_str = r['RequestTime'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(r['RequestTime'], datetime.datetime) else str(r['RequestTime'])
+        req_time_str = _format_utc_as_local(r['RequestTime'])
         db_reqs.append({
           'RequestID': r['RequestID'],
           'farmer_id': r['FarmerID'],
@@ -2026,7 +2047,7 @@ def get_my_requests(farmer_id):
     for item in combined_reqs:
       for field in sensor_fields:
         item.pop(field, None)
-  now = datetime.datetime.now()
+  now = _local_now().replace(tzinfo=None)
   display_reqs = []
   for r in combined_reqs:
     display_req = dict(r)
@@ -2081,7 +2102,7 @@ def admin_get_water_requests():
       )
       rows = cursor.fetchall()
       for r in rows:
-        req_time_str = r['RequestTime'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(r['RequestTime'], datetime.datetime) else str(r['RequestTime'])
+        req_time_str = _format_utc_as_local(r['RequestTime'])
         farmer_name = f"{r.get('F_Name', '')} {r.get('L_Name', '')}".strip() or f"Farmer #{r['FarmerID']}"
         db_reqs.append({
           'RequestID': r['RequestID'],

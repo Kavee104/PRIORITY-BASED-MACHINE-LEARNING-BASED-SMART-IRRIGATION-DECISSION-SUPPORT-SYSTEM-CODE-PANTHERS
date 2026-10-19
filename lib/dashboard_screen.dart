@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
+import 'app_localization.dart';
 import 'app_theme.dart';
 import 'auth_service.dart';
 import 'field_creation_screen.dart';
@@ -16,7 +17,12 @@ class DashboardScreen extends StatefulWidget {
   final String farmerEmail;
   final int farmerId;
 
-  const DashboardScreen({super.key, required this.farmerName, required this.farmerEmail, required this.farmerId});
+  const DashboardScreen({
+    super.key,
+    required this.farmerName,
+    required this.farmerEmail,
+    required this.farmerId,
+  });
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -60,7 +66,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_sensorFetchInProgress) return;
     _sensorFetchInProgress = true;
     if (kDebugMode) {
-      debugPrint('[IoT telemetry] Dashboard authenticated farmer_id=${widget.farmerId}');
+      debugPrint(
+        '[IoT telemetry] Dashboard authenticated farmer_id=${widget.farmerId}',
+      );
     }
     final cloudService = SupabaseSensorService.instance;
 
@@ -84,7 +92,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      final reading = await cloudService.getLatestReadingForFarmer(widget.farmerId);
+      final reading = await cloudService.getLatestReadingForFarmer(
+        widget.farmerId,
+      );
       if (!mounted) return;
       setState(() {
         liveMoisture = reading?.moisture;
@@ -184,7 +194,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _newPasswordController = TextEditingController();
     loadData();
     fetchSensorData();
-    _sensorTimer = Timer.periodic(const Duration(seconds: 5), (_) => fetchSensorData());
+    _sensorTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => fetchSensorData(),
+    );
   }
 
   @override
@@ -207,11 +220,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     List<dynamic> remoteFields = [];
     List<dynamic> remoteReqs = [];
     try {
-      final fieldsResponse = await http.get(Uri.parse("$baseUrl/fields/${widget.farmerId}")).timeout(const Duration(seconds: 3));
+      final fieldsResponse = await http
+          .get(Uri.parse("$baseUrl/fields/${widget.farmerId}"))
+          .timeout(const Duration(seconds: 3));
       final fieldsData = jsonDecode(fieldsResponse.body);
       remoteFields = fieldsData['fields'] ?? [];
 
-      final requestsResponse = await http.get(Uri.parse("$baseUrl/my-requests/${widget.farmerId}")).timeout(const Duration(seconds: 3));
+      final requestsResponse = await http
+          .get(Uri.parse("$baseUrl/my-requests/${widget.farmerId}"))
+          .timeout(const Duration(seconds: 3));
       final requestsData = jsonDecode(requestsResponse.body);
       remoteReqs = requestsData['requests'] ?? [];
     } catch (e) {
@@ -236,7 +253,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     // Merge shared AuthService requests so real-time approvals/rejections from Admin are immediately shown to Farmer
-    final localReqs = AuthService.instance.getFarmerRequests(widget.farmerId).map((r) => r.toJson()).toList();
+    final localReqs = AuthService.instance
+        .getFarmerRequests(widget.farmerId)
+        .map((r) => r.toJson())
+        .toList();
     final combinedMap = <int, dynamic>{};
     for (var r in localReqs) {
       final rid = int.tryParse("${r['RequestID']}");
@@ -283,33 +303,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Capture the same Supabase reading currently shown on the farmer
     // dashboard. The backend stores this with the request so the admin sees
     // the values from request time, rather than a later live reading.
-    final hasMatchingSensor = sensorConnected && fieldZoneNo != null && sensorZoneNo == fieldZoneNo && liveMoisture != null && liveTemperature != null && sensorDeviceId != null;
+    final hasMatchingSensor =
+        sensorConnected &&
+        fieldZoneNo != null &&
+        sensorZoneNo == fieldZoneNo &&
+        liveMoisture != null &&
+        liveTemperature != null &&
+        sensorDeviceId != null;
     final requestBody = <String, dynamic>{
       "farmer_id": widget.farmerId,
       "field_id": fieldId,
       "area_acres": areaAcres,
-      if (hasMatchingSensor) "sensor_snapshot": {"moisture": liveMoisture, "temperature": liveTemperature, "zone_no": sensorZoneNo, "device_id": sensorDeviceId, "recorded_at": sensorRecordedAt?.toUtc().toIso8601String()},
+      if (hasMatchingSensor)
+        "sensor_snapshot": {
+          "moisture": liveMoisture,
+          "temperature": liveTemperature,
+          "zone_no": sensorZoneNo,
+          "device_id": sensorDeviceId,
+          "recorded_at": sensorRecordedAt?.toUtc().toIso8601String(),
+        },
     };
 
     try {
       final response = await http
           .post(
             Uri.parse("$baseUrl/request-water"),
-            headers: {"Content-Type": "application/json", if (AuthService.instance.sessionToken != null) "Authorization": "Bearer ${AuthService.instance.sessionToken}"},
+            headers: {
+              "Content-Type": "application/json",
+              if (AuthService.instance.sessionToken != null)
+                "Authorization": "Bearer ${AuthService.instance.sessionToken}",
+            },
             body: jsonEncode(requestBody),
           )
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 20));
 
       if (response.statusCode == 201) {
-        _showMessage("Water request submitted successfully!", AppColors.primaryGreen);
+        _showMessage(
+          "Water request submitted successfully!",
+          AppColors.primaryGreen,
+        );
         loadData();
       } else {
-        _showMessage("Water request rejected by server (${response.statusCode})", Colors.redAccent);
+        String serverMessage =
+            "Water request rejected by server (${response.statusCode})";
+        try {
+          final responseData = jsonDecode(response.body);
+          serverMessage =
+              (responseData['error'] ??
+                      responseData['message'] ??
+                      serverMessage)
+                  .toString();
+        } catch (_) {}
+        _showMessage(serverMessage, Colors.redAccent);
       }
     } catch (e) {
       // Network error or timeout, fallback to local registration
-      AuthService.instance.addWaterRequest(farmerId: widget.farmerId, fieldId: fieldId, zoneName: zoneName, farmerName: _currentFarmerName, moisture: hasMatchingSensor ? liveMoisture!.round() : null, temperature: hasMatchingSensor ? liveTemperature : null, areaAcres: areaAcres);
-      _showMessage("Water request saved locally; backend sync is pending", Colors.orangeAccent);
+      AuthService.instance.addWaterRequest(
+        farmerId: widget.farmerId,
+        fieldId: fieldId,
+        zoneName: zoneName,
+        farmerName: _currentFarmerName,
+        moisture: hasMatchingSensor ? liveMoisture!.round() : null,
+        temperature: hasMatchingSensor ? liveTemperature : null,
+        areaAcres: areaAcres,
+      );
+      _showMessage(
+        "Water request saved locally; backend sync is pending",
+        Colors.orangeAccent,
+      );
     }
 
     loadData();
@@ -323,7 +384,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const Icon(Icons.info_outline, color: Colors.white, size: 20),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+              child: Text(
+                message,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         ),
@@ -345,12 +409,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (currentPw.isNotEmpty || newPw.isNotEmpty) {
       if (currentPw.isEmpty || newPw.isEmpty) {
         setState(() => _isSavingSettings = false);
-        _showMessage("Please enter both current and new password to change password", Colors.orangeAccent);
+        _showMessage(
+          "Please enter both current and new password to change password",
+          Colors.orangeAccent,
+        );
         return;
       }
 
       // Update password locally in AuthService
-      final localSuccess = AuthService.instance.changePassword(userId: widget.farmerId, userEmail: widget.farmerEmail, oldPassword: currentPw, newPassword: newPw);
+      final localSuccess = AuthService.instance.changePassword(
+        userId: widget.farmerId,
+        userEmail: widget.farmerEmail,
+        oldPassword: currentPw,
+        newPassword: newPw,
+      );
 
       // Update password on backend API
       bool remoteSuccess = false;
@@ -359,7 +431,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .post(
               Uri.parse("$baseUrl/change-password"),
               headers: {"Content-Type": "application/json"},
-              body: jsonEncode({"username": widget.farmerEmail.isNotEmpty ? widget.farmerEmail : _currentFarmerName, "old_password": currentPw, "new_password": newPw}),
+              body: jsonEncode({
+                "username": widget.farmerEmail.isNotEmpty
+                    ? widget.farmerEmail
+                    : _currentFarmerName,
+                "old_password": currentPw,
+                "new_password": newPw,
+              }),
             )
             .timeout(const Duration(seconds: 3));
 
@@ -393,7 +471,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       firstField['Size'] = sizeVal;
 
       try {
-        final localFields = AuthService.instance.getFarmerFields(widget.farmerId);
+        final localFields = AuthService.instance.getFarmerFields(
+          widget.farmerId,
+        );
         for (var lf in localFields) {
           if (lf['FieldID'] == firstField['FieldID']) {
             lf['ZoneNo'] = zoneVal;
@@ -407,19 +487,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _isSavingSettings = false;
       });
-      _showMessage("Profile and settings saved successfully!", AppColors.primaryGreen);
+      _showMessage(
+        "Profile and settings saved successfully!",
+        AppColors.primaryGreen,
+      );
     }
   }
 
   void _showFieldPicker() {
     if (fields.isEmpty) {
-      _showMessage("Please register a field first", AppColors.warning);
+      _showMessage(
+        context.tr('Please register a field first'),
+        AppColors.warning,
+      );
       return;
     }
 
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (context) {
         return Container(
           padding: const EdgeInsets.all(24),
@@ -431,18 +519,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: AppColors.lightGreen, borderRadius: BorderRadius.circular(12)),
-                    child: const Icon(Icons.water_drop_rounded, color: AppColors.primaryDarkGreen, size: 24),
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGreen,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.water_drop_rounded,
+                      color: AppColors.primaryDarkGreen,
+                      size: 24,
+                    ),
                   ),
                   const SizedBox(width: 14),
-                  const Column(
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Select Field for Irrigation",
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                        context.tr('Select Field for Irrigation'),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
                       ),
-                      Text("Request automated water allocation", style: TextStyle(fontSize: 13, color: AppColors.secondaryText)),
+                      Text(
+                        context.tr('Request automated water allocation'),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.secondaryText,
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -460,13 +565,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         border: Border.all(color: AppColors.border),
                       ),
                       child: ListTile(
-                        leading: const Icon(Icons.eco_rounded, color: AppColors.primaryGreen),
+                        leading: const Icon(
+                          Icons.eco_rounded,
+                          color: AppColors.primaryGreen,
+                        ),
                         title: Text(
                           "Field #${field['FieldID']} - Zone ${field['ZoneNo']}",
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                         subtitle: Text("Size: ${field['Size']} acres"),
-                        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: AppColors.primaryGreen),
+                        trailing: const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 16,
+                          color: AppColors.primaryGreen,
+                        ),
                         onTap: () {
                           Navigator.pop(context);
                           requestWater(field['FieldID']);
@@ -501,20 +616,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 Container(
                   padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(14)),
-                  child: const Icon(Icons.water_drop_rounded, color: Colors.white, size: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.water_drop_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
                 const SizedBox(width: 14),
-                const Column(
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "Smart Irrigation",
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      context.tr('Smart Irrigation'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     Text(
                       "AgTech AI Platform",
-                      style: TextStyle(color: AppColors.lightGreen, fontSize: 11, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        color: AppColors.lightGreen,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
@@ -532,13 +662,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 final isSelected = _selectedNavItem == title;
                 return Container(
                   margin: const EdgeInsets.only(bottom: 6),
-                  decoration: BoxDecoration(color: isSelected ? Colors.white.withValues(alpha: 0.2) : Colors.transparent, borderRadius: BorderRadius.circular(14)),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? Colors.white.withValues(alpha: 0.2)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                    leading: Icon(item['icon'] as IconData, color: isSelected ? Colors.white : Colors.white70, size: 22),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 2,
+                    ),
+                    leading: Icon(
+                      item['icon'] as IconData,
+                      color: isSelected ? Colors.white : Colors.white70,
+                      size: 22,
+                    ),
                     title: Text(
-                      title,
-                      style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontWeight: isSelected ? FontWeight.bold : FontWeight.w500, fontSize: 14),
+                      context.tr(title),
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.white70,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.w500,
+                        fontSize: 14,
+                      ),
                     ),
                     onTap: () {
                       setState(() {
@@ -564,7 +712,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const CircleAvatar(
                   backgroundColor: Colors.white,
                   radius: 18,
-                  child: Icon(Icons.person_rounded, color: AppColors.primaryDarkGreen, size: 20),
+                  child: Icon(
+                    Icons.person_rounded,
+                    color: AppColors.primaryDarkGreen,
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -575,19 +727,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         _currentFarmerName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
-                      const Text(
-                        "FARMER ROLE",
-                        style: TextStyle(color: AppColors.lightGreen, fontSize: 10, fontWeight: FontWeight.bold),
+                      Text(
+                        context.tr('FARMER ROLE'),
+                        style: const TextStyle(
+                          color: AppColors.lightGreen,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.logout_rounded, color: Colors.white70, size: 18),
+                  icon: const Icon(
+                    Icons.logout_rounded,
+                    color: Colors.white70,
+                    size: 18,
+                  ),
                   onPressed: () {
-                    Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const LoginScreen()), (route) => false);
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const LoginScreen(),
+                      ),
+                      (route) => false,
+                    );
                   },
                 ),
               ],
@@ -609,25 +779,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(gradient: AppColors.heroGradient, borderRadius: BorderRadius.circular(24)),
+            decoration: BoxDecoration(
+              gradient: AppColors.heroGradient,
+              borderRadius: BorderRadius.circular(24),
+            ),
             child: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), shape: BoxShape.circle),
-                  child: const Icon(Icons.settings_rounded, color: Colors.white, size: 32),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.settings_rounded,
+                    color: Colors.white,
+                    size: 32,
+                  ),
                 ),
                 const SizedBox(width: 18),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        "Farmer Profile & Account Settings",
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                      Text(
+                        context.tr('Farmer Profile & Account Settings'),
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                       const SizedBox(height: 4),
-                      Text("Manage your personal info, farm preferences, and security settings", style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.85))),
+                      Text(
+                        context.tr(
+                          'Manage your personal info, farm preferences, and security settings',
+                        ),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white.withValues(alpha: 0.85),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -644,25 +836,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: AppColors.border),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.person_outline_rounded, color: AppColors.primaryGreen, size: 22),
-                    SizedBox(width: 10),
+                    const Icon(
+                      Icons.person_outline_rounded,
+                      color: AppColors.primaryGreen,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
                     Text(
-                      "Personal Profile Details",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                      context.tr('Personal Profile Details'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primaryText,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 20),
-                CustomTextField(controller: _nameController, labelText: "Full Name", prefixIcon: Icons.person_rounded),
+                CustomTextField(
+                  controller: _nameController,
+                  labelText: context.tr('Full Name'),
+                  prefixIcon: Icons.person_rounded,
+                ),
                 const SizedBox(height: 16),
-                CustomTextField(controller: _emailController, labelText: "Email Address", prefixIcon: Icons.email_rounded, keyboardType: TextInputType.emailAddress),
+                CustomTextField(
+                  controller: _emailController,
+                  labelText: context.tr('Email Address'),
+                  prefixIcon: Icons.email_rounded,
+                  keyboardType: TextInputType.emailAddress,
+                ),
               ],
             ),
           ),
@@ -676,25 +891,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: AppColors.border),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.lock_outline_rounded, color: AppColors.primaryDarkGreen, size: 22),
-                    SizedBox(width: 10),
+                    const Icon(
+                      Icons.lock_outline_rounded,
+                      color: AppColors.primaryDarkGreen,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
                     Text(
-                      "Account Security & Password",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                      context.tr('Account Security & Password'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primaryText,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 20),
-                CustomTextField(controller: _currentPasswordController, labelText: "Current Password", prefixIcon: Icons.lock_rounded, obscureText: true),
+                CustomTextField(
+                  controller: _currentPasswordController,
+                  labelText: context.tr('Current Password'),
+                  prefixIcon: Icons.lock_rounded,
+                  obscureText: true,
+                ),
                 const SizedBox(height: 16),
-                CustomTextField(controller: _newPasswordController, labelText: "New Password", prefixIcon: Icons.lock_reset_rounded, obscureText: true),
+                CustomTextField(
+                  controller: _newPasswordController,
+                  labelText: context.tr('New Password'),
+                  prefixIcon: Icons.lock_reset_rounded,
+                  obscureText: true,
+                ),
               ],
             ),
           ),
@@ -702,7 +941,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 28),
 
           // Save Settings Button
-          PrimaryButton(text: "SAVE PROFILE CHANGES", onPressed: _saveProfileSettings, isLoading: _isSavingSettings),
+          PrimaryButton(
+            text: context.tr('SAVE PROFILE CHANGES'),
+            onPressed: _saveProfileSettings,
+            isLoading: _isSavingSettings,
+          ),
         ],
       ),
     );
@@ -735,17 +978,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               decoration: BoxDecoration(
                 gradient: AppColors.heroGradient,
                 borderRadius: BorderRadius.circular(24),
-                boxShadow: [BoxShadow(color: AppColors.primaryDarkGreen.withValues(alpha: 0.25), blurRadius: 20, offset: const Offset(0, 8))],
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primaryDarkGreen.withValues(alpha: 0.25),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.2),
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -753,53 +1007,106 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Container(
                           width: 8,
                           height: 8,
-                          decoration: const BoxDecoration(color: AppColors.brightGreen, shape: BoxShape.circle),
+                          decoration: const BoxDecoration(
+                            color: AppColors.brightGreen,
+                            shape: BoxShape.circle,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         const Text(
                           "SMART AGTECH • AI POWERED",
-                          style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.8,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    "Welcome, $_currentFarmerName 👋",
-                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: -0.5),
+                    context.tr('Welcome, {name}', {'name': _currentFarmerName}),
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: -0.5,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    "AI-powered irrigation optimization helps you save water, improve crop yield, and automate zone scheduling.",
-                    style: TextStyle(fontSize: 14, color: Colors.white.withValues(alpha: 0.85)),
+                    context.tr(
+                      'AI-powered irrigation optimization helps you save water, improve crop yield, and automate zone scheduling.',
+                    ),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white.withValues(alpha: 0.85),
+                    ),
                   ),
                   const SizedBox(height: 20),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(14)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     child: Row(
                       children: [
-                        Icon(Icons.sensors_rounded, color: sensorConnected ? AppColors.brightGreen : Colors.orangeAccent, size: 18),
+                        Icon(
+                          Icons.sensors_rounded,
+                          color: sensorConnected
+                              ? AppColors.brightGreen
+                              : Colors.orangeAccent,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             sensorStatus,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
-                            color: (sensorConnected ? AppColors.primaryGreen : Colors.orange).withValues(alpha: 0.3),
+                            color:
+                                (sensorConnected
+                                        ? AppColors.primaryGreen
+                                        : Colors.orange)
+                                    .withValues(alpha: 0.3),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: (sensorConnected ? AppColors.brightGreen : Colors.orangeAccent).withValues(alpha: 0.5)),
+                            border: Border.all(
+                              color:
+                                  (sensorConnected
+                                          ? AppColors.brightGreen
+                                          : Colors.orangeAccent)
+                                      .withValues(alpha: 0.5),
+                            ),
                           ),
                           child: Text(
-                            sensorConnected ? "ONLINE" : "OFFLINE",
-                            style: TextStyle(color: sensorConnected ? AppColors.brightGreen : Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                            context.tr(sensorConnected ? 'ONLINE' : 'OFFLINE'),
+                            style: TextStyle(
+                              color: sensorConnected
+                                  ? AppColors.brightGreen
+                                  : Colors.orangeAccent,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
@@ -812,9 +1119,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 28),
 
             // Metric Grid Cards (Soil Moisture & Temperature Telemetry)
-            const Text(
-              "System Metrics & Telemetry",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+            Text(
+              context.tr('System Metrics & Telemetry'),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primaryText,
+              ),
             ),
             const SizedBox(height: 16),
 
@@ -831,28 +1142,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   children: [
                     _MetricStatCard(
                       icon: Icons.opacity_rounded,
-                      title: "Soil Moisture",
+                      title: context.tr('Soil Moisture'),
                       value: liveMoisture == null ? "--" : "$liveMoisture%",
                       badgeText: liveMoisture == null
-                          ? "No data"
+                          ? context.tr('No data')
                           : liveMoisture! < 40
-                          ? "Needs Water"
-                          : "Optimal",
-                      badgeColor: liveMoisture != null && liveMoisture! < 40 ? AppColors.warning : AppColors.primaryGreen,
-                      subtitle: "Moisture Index",
+                          ? context.tr('Needs Water')
+                          : context.tr('Optimal'),
+                      badgeColor: liveMoisture != null && liveMoisture! < 40
+                          ? AppColors.warning
+                          : AppColors.primaryGreen,
+                      subtitle: context.tr('Moisture Index'),
                       iconColor: AppColors.primaryGreen,
                     ),
                     _MetricStatCard(
                       icon: Icons.thermostat_rounded,
-                      title: "Temperature",
-                      value: liveTemperature == null ? "--" : "${liveTemperature!.toStringAsFixed(1)}°C",
+                      title: context.tr('Temperature'),
+                      value: liveTemperature == null
+                          ? "--"
+                          : "${liveTemperature!.toStringAsFixed(1)}°C",
                       badgeText: liveTemperature == null
-                          ? "No data"
+                          ? context.tr('No data')
                           : liveTemperature! > 35
-                          ? "High"
-                          : "Normal",
-                      badgeColor: liveTemperature != null && liveTemperature! > 35 ? AppColors.danger : AppColors.warning,
-                      subtitle: "Ambient Temp",
+                          ? context.tr('High')
+                          : context.tr('Normal'),
+                      badgeColor:
+                          liveTemperature != null && liveTemperature! > 35
+                          ? AppColors.danger
+                          : AppColors.warning,
+                      subtitle: context.tr('Ambient Temp'),
                       iconColor: AppColors.warning,
                     ),
                   ],
@@ -868,16 +1186,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () async {
-                      await Navigator.push(context, MaterialPageRoute(builder: (context) => FieldCreationScreen(farmerId: widget.farmerId)));
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              FieldCreationScreen(farmerId: widget.farmerId),
+                        ),
+                      );
                       loadData();
                     },
-                    icon: const Icon(Icons.add_circle_outline_rounded, color: Colors.white, size: 20),
-                    label: const Text("Add New Field", style: TextStyle(fontWeight: FontWeight.bold)),
+                    icon: const Icon(
+                      Icons.add_circle_outline_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    label: Text(
+                      context.tr('Add New Field'),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primaryGreen,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                   ),
                 ),
@@ -885,13 +1218,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _showFieldPicker,
-                    icon: const Icon(Icons.water_drop_outlined, color: Colors.white, size: 20),
-                    label: const Text("Request Water", style: TextStyle(fontWeight: FontWeight.bold)),
+                    icon: const Icon(
+                      Icons.water_drop_outlined,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    label: Text(
+                      context.tr('Request Water'),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.teal,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                   ),
                 ),
@@ -904,16 +1246,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  "Registered Fields & Soil Condition",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                Text(
+                  context.tr('Registered Fields & Soil Condition'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryText,
+                  ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(color: AppColors.lightGreen, borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGreen,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Text(
                     "${fields.length} Fields",
-                    style: const TextStyle(color: AppColors.primaryDarkGreen, fontWeight: FontWeight.bold, fontSize: 12),
+                    style: const TextStyle(
+                      color: AppColors.primaryDarkGreen,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -927,49 +1283,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: AppColors.border),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
-                    headingRowColor: WidgetStateProperty.all(AppColors.inputBackground),
-                    columns: const [
+                    headingRowColor: WidgetStateProperty.all(
+                      AppColors.inputBackground,
+                    ),
+                    columns: [
                       DataColumn(
                         label: Text(
-                          "Field ID",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Field ID'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                       DataColumn(
                         label: Text(
-                          "Zone No",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Zone No'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                       DataColumn(
                         label: Text(
-                          "Size",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Size'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                       DataColumn(
                         label: Text(
-                          "Moisture",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Moisture'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                       DataColumn(
                         label: Text(
-                          "Status",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Status'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                       DataColumn(
                         label: Text(
-                          "Action",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Action'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                     ],
@@ -978,24 +1360,56 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final isOptimal = status == 'Optimal';
                       return DataRow(
                         cells: [
-                          DataCell(Text("#${f['FieldID']}", style: const TextStyle(fontWeight: FontWeight.bold))),
+                          DataCell(
+                            Text(
+                              "#${f['FieldID']}",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
                           DataCell(Text("Zone ${f['ZoneNo']}")),
                           DataCell(Text("${f['Size']} acres")),
-                          DataCell(Text(sensorZoneNo == f['ZoneNo'] && liveMoisture != null ? "$liveMoisture%" : "${f['Moisture'] ?? '--'}")),
+                          DataCell(
+                            Text(
+                              sensorZoneNo == f['ZoneNo'] &&
+                                      liveMoisture != null
+                                  ? "$liveMoisture%"
+                                  : "${f['Moisture'] ?? '--'}",
+                            ),
+                          ),
                           DataCell(
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(color: isOptimal ? AppColors.lightGreen : Colors.amber.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isOptimal
+                                    ? AppColors.lightGreen
+                                    : Colors.amber.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
                               child: Text(
-                                status,
-                                style: TextStyle(color: isOptimal ? AppColors.primaryDarkGreen : Colors.amber.shade900, fontWeight: FontWeight.bold, fontSize: 11),
+                                context.tr(status),
+                                style: TextStyle(
+                                  color: isOptimal
+                                      ? AppColors.primaryDarkGreen
+                                      : Colors.amber.shade900,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
                           ),
                           DataCell(
                             IconButton(
-                              icon: const Icon(Icons.water_drop_rounded, color: AppColors.primaryGreen, size: 20),
-                              tooltip: "Request Water",
+                              icon: const Icon(
+                                Icons.water_drop_rounded,
+                                color: AppColors.primaryGreen,
+                                size: 20,
+                              ),
+                              tooltip: context.tr('Request Water'),
                               onPressed: () => requestWater(f['FieldID']),
                             ),
                           ),
@@ -1013,16 +1427,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  "Water Allocation Requests",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                Text(
+                  context.tr('Water Allocation Requests'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryText,
+                  ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(color: AppColors.lightGreen, borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGreen,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Text(
                     "${requests.length} Requests",
-                    style: const TextStyle(color: AppColors.primaryDarkGreen, fontWeight: FontWeight.bold, fontSize: 12),
+                    style: const TextStyle(
+                      color: AppColors.primaryDarkGreen,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -1035,31 +1463,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: AppColors.border),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
-                    headingRowColor: WidgetStateProperty.all(AppColors.inputBackground),
-                    columns: const [
+                    headingRowColor: WidgetStateProperty.all(
+                      AppColors.inputBackground,
+                    ),
+                    columns: [
                       DataColumn(
                         label: Text(
-                          "Zone / Field",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Zone / Field'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                       DataColumn(
                         label: Text(
-                          "Request Time",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Request Time'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                       DataColumn(
                         label: Text(
-                          "Status",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                          context.tr('Status'),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryText,
+                          ),
                         ),
                       ),
                     ],
@@ -1080,19 +1525,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       }
 
                       final rawZone = "${r['ZoneName'] ?? ''}";
-                      final fieldLabel = (!rawZone.contains("Field #") && r['FieldID'] != null) ? "$rawZone (Field #${r['FieldID']})" : rawZone;
+                      final fieldLabel =
+                          (!rawZone.contains("Field #") && r['FieldID'] != null)
+                          ? "$rawZone (Field #${r['FieldID']})"
+                          : rawZone;
 
                       return DataRow(
                         cells: [
-                          DataCell(Text(fieldLabel, style: const TextStyle(fontWeight: FontWeight.bold))),
+                          DataCell(
+                            Text(
+                              fieldLabel,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
                           DataCell(Text("${r['RequestTime']}")),
                           DataCell(
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(color: sBg, borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: sBg,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
                               child: Text(
-                                status,
-                                style: TextStyle(color: sColor, fontWeight: FontWeight.bold, fontSize: 11),
+                                context.tr(status),
+                                style: TextStyle(
+                                  color: sColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
                           ),
@@ -1125,8 +1590,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             if (!isDesktop) ...[
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: AppColors.lightGreen, borderRadius: BorderRadius.circular(10)),
-                child: const Icon(Icons.water_drop_rounded, color: AppColors.primaryDarkGreen, size: 20),
+                decoration: BoxDecoration(
+                  color: AppColors.lightGreen,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.water_drop_rounded,
+                  color: AppColors.primaryDarkGreen,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
             ],
@@ -1135,16 +1607,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _selectedNavItem == 'Settings' ? "Profile & Account Settings" : "Smart Irrigation Dashboard",
+                    context.tr(
+                      _selectedNavItem == 'Settings'
+                          ? 'Profile & Account Settings'
+                          : 'Smart Irrigation Dashboard',
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText, fontSize: 16),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primaryText,
+                      fontSize: 16,
+                    ),
                   ),
                   Text(
-                    _selectedNavItem == 'Settings' ? "Manage farmer details & preferences" : "AI-Powered Water Allocation & Telemetry",
+                    context.tr(
+                      _selectedNavItem == 'Settings'
+                          ? 'Manage farmer details & preferences'
+                          : 'AI-Powered Water Allocation & Telemetry',
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.secondaryText, fontSize: 11),
+                    style: const TextStyle(
+                      color: AppColors.secondaryText,
+                      fontSize: 11,
+                    ),
                   ),
                 ],
               ),
@@ -1153,11 +1640,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
 
         actions: [
+          const Center(child: LanguageSelector()),
+          const SizedBox(width: 4),
           IconButton(
-            icon: const Icon(Icons.logout_rounded, color: AppColors.secondaryText),
-            tooltip: "Logout",
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: AppColors.secondaryText,
+            ),
+            tooltip: context.tr('Logout'),
             onPressed: () {
-              Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const LoginScreen()), (route) => false);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                (route) => false,
+              );
             },
           ),
           const SizedBox(width: 8),
@@ -1166,7 +1662,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Row(
         children: [
           if (isDesktop) _buildSidebar(),
-          Expanded(child: SafeArea(child: _selectedNavItem == 'Settings' ? _buildSettingsView() : _buildDashboardMainView())),
+          Expanded(
+            child: SafeArea(
+              child: _selectedNavItem == 'Settings'
+                  ? _buildSettingsView()
+                  : _buildDashboardMainView(),
+            ),
+          ),
         ],
       ),
     );
@@ -1182,7 +1684,15 @@ class _MetricStatCard extends StatelessWidget {
   final String subtitle;
   final Color iconColor;
 
-  const _MetricStatCard({required this.icon, required this.title, required this.value, required this.badgeText, required this.badgeColor, required this.subtitle, required this.iconColor});
+  const _MetricStatCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.badgeText,
+    required this.badgeColor,
+    required this.subtitle,
+    required this.iconColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1192,7 +1702,13 @@ class _MetricStatCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.border),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1202,15 +1718,25 @@ class _MetricStatCard extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: iconColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 child: Icon(icon, color: iconColor, size: 20),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(color: badgeColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+                decoration: BoxDecoration(
+                  color: badgeColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 child: Text(
                   badgeText,
-                  style: TextStyle(color: badgeColor, fontSize: 10, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: badgeColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -1220,14 +1746,22 @@ class _MetricStatCard extends StatelessWidget {
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12, color: AppColors.secondaryText, fontWeight: FontWeight.w500),
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.secondaryText,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryText,
+            ),
           ),
           const SizedBox(height: 2),
           Text(

@@ -154,6 +154,26 @@ class IotApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json['sensors'], [])
 
+    def test_admin_route_accepts_signed_admin_session_only(self):
+        admin_user = {'id': 1, 'role': 'admin', 'password_hash': 'unused'}
+        farmer_user = {'id': 2, 'role': 'farmer', 'password_hash': 'unused'}
+        with patch.dict(backend.users, {
+                'mobile_admin': admin_user,
+                'mobile_farmer': farmer_user,
+             }), patch.object(backend, 'get_db_connection', return_value=FakeConnection()), \
+             patch.object(backend.iot_store, 'list_latest', return_value=[]):
+            admin_token = backend._session_token('mobile_admin', admin_user)
+            farmer_token = backend._session_token('mobile_farmer', farmer_user)
+            admin_response = self.client.get(
+                '/api/admin/sensors',
+                headers={'Authorization': f'Bearer {admin_token}'})
+            farmer_response = self.client.get(
+                '/api/admin/sensors',
+                headers={'Authorization': f'Bearer {farmer_token}'})
+
+        self.assertEqual(admin_response.status_code, 200)
+        self.assertEqual(farmer_response.status_code, 401)
+
     def test_status_expires_after_timeout(self):
         old = datetime.now(timezone.utc) - timedelta(seconds=backend.IOT_OFFLINE_SECONDS + 2)
         recent = datetime.now(timezone.utc)

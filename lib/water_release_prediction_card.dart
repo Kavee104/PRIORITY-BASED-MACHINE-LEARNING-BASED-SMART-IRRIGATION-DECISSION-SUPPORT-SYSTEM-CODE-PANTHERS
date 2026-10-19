@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api_service.dart';
+import 'app_localization.dart';
 import 'app_theme.dart';
 
 class WaterReleasePredictionCard extends StatefulWidget {
@@ -105,21 +106,23 @@ class _WaterReleasePredictionCardState
                   ),
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'ML Water Release Predictor',
-                        style: TextStyle(
+                        context.tr('ML Water Release Predictor'),
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: AppColors.primaryText,
                         ),
                       ),
                       Text(
-                        'Mahakandarawa Reservoir • ArcGIS & Weather AI',
-                        style: TextStyle(
+                        context.tr(
+                          'Mahakandarawa Reservoir • ArcGIS & Weather AI',
+                        ),
+                        style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.secondaryText,
                         ),
@@ -139,7 +142,7 @@ class _WaterReleasePredictionCardState
                         )
                       : const Icon(Icons.refresh, color: AppColors.teal),
                   onPressed: _isLoading ? null : _fetchPrediction,
-                  tooltip: 'Refresh Prediction',
+                  tooltip: context.tr('Refresh Prediction'),
                 ),
               ],
             ),
@@ -153,18 +156,18 @@ class _WaterReleasePredictionCardState
               runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                const Row(
+                Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.location_on_outlined,
                       size: 20,
                       color: AppColors.teal,
                     ),
-                    SizedBox(width: 8),
+                    const SizedBox(width: 8),
                     Text(
-                      'Target Reservoir:',
-                      style: TextStyle(
+                      context.tr('Target Reservoir:'),
+                      style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
                         color: AppColors.primaryText,
@@ -232,7 +235,7 @@ class _WaterReleasePredictionCardState
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Text(
-                        'PREDICTED RELEASE AMOUNT',
+                        context.tr('PREDICTED RELEASE AMOUNT'),
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
@@ -299,9 +302,9 @@ class _WaterReleasePredictionCardState
             const SizedBox(height: 16),
 
             // Live Input Features Matrix
-            const Text(
-              'ArcGIS & Weather Realtime Inputs:',
-              style: TextStyle(
+            Text(
+              context.tr('ArcGIS & Weather Realtime Inputs:'),
+              style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: AppColors.secondaryText,
@@ -312,7 +315,7 @@ class _WaterReleasePredictionCardState
               children: [
                 Expanded(
                   child: _buildMetricTile(
-                    label: 'Water Depth',
+                    label: context.tr('Water Depth'),
                     value:
                         '${features['Reservoir Water Level']?.toStringAsFixed(1) ?? '--'} ft',
                     icon: Icons.waves,
@@ -321,7 +324,7 @@ class _WaterReleasePredictionCardState
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildMetricTile(
-                    label: 'Capacity',
+                    label: context.tr('Capacity'),
                     value:
                         '${features['Reservoir Capacity']?.toStringAsFixed(0) ?? '--'} Acft',
                     icon: Icons.pie_chart,
@@ -330,7 +333,7 @@ class _WaterReleasePredictionCardState
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildMetricTile(
-                    label: 'Rainfall',
+                    label: context.tr('Rainfall'),
                     value:
                         '${features['Rainfall (Nachchaduwa)']?.toStringAsFixed(1) ?? '0.0'} mm',
                     icon: Icons.cloudy_snowing,
@@ -427,7 +430,7 @@ class _WaterReleasePredictionCardState
           Icon(icon, size: 14, color: fg),
           const SizedBox(width: 5),
           Text(
-            '$status Release Demand',
+            context.tr(status) + ' ' + context.tr('Release Demand'),
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,

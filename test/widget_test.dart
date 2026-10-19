@@ -7,7 +7,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:smart_irrigation/app_localization.dart';
 import 'package:smart_irrigation/main.dart';
 import 'package:smart_irrigation/priority_schedule_screen.dart';
 
@@ -18,6 +20,26 @@ void main() {
 
     // Verify that login title is rendered
     expect(find.text('Smart Irrigation'), findsWidgets);
+  });
+
+  testWidgets('User can switch the login screen to Sinhala', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    AppLocaleController.instance.locale.value = const Locale('en');
+    addTearDown(() {
+      AppLocaleController.instance.locale.value = const Locale('en');
+    });
+
+    await tester.pumpWidget(const SmartIrrigationApp());
+    await tester.tap(find.byIcon(Icons.language_rounded).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('සිංහල'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('සාදරයෙන් පිළිගනිමු'), findsOneWidget);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString('app_language'), 'si');
   });
 
   testWidgets('Priority schedule fits a 400px mobile viewport', (

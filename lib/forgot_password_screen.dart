@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
+import 'app_localization.dart';
 import 'app_theme.dart';
 import 'login_widgets.dart';
 
@@ -44,7 +45,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Future<void> requestOtp() async {
     final email = emailController.text.trim();
     if (email.isEmpty) {
-      _showMessage("Please enter your email address", Colors.orangeAccent);
+      _showMessage(
+        context.tr('Please enter your email address'),
+        Colors.orangeAccent,
+      );
       return;
     }
 
@@ -90,7 +94,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Future<void> verifyOtp() async {
     final otp = otpController.text.trim();
     if (otp.isEmpty) {
-      _showMessage("Please enter the OTP code", Colors.orangeAccent);
+      _showMessage(
+        context.tr('Please enter the OTP code'),
+        Colors.orangeAccent,
+      );
       return;
     }
 
@@ -137,12 +144,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     final confirmPassword = confirmPasswordController.text.trim();
 
     if (newPassword.isEmpty || confirmPassword.isEmpty) {
-      _showMessage("Please fill both password fields", Colors.orangeAccent);
+      _showMessage(
+        context.tr('Please fill both password fields'),
+        Colors.orangeAccent,
+      );
       return;
     }
 
     if (newPassword != confirmPassword) {
-      _showMessage("Passwords do not match", Colors.redAccent);
+      _showMessage(context.tr('Passwords do not match'), Colors.redAccent);
       return;
     }
 
@@ -193,20 +203,22 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          "Enter your registered email address. We'll send a verification code.",
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        Text(
+          context.tr(
+            "Enter your registered email address. We'll send a verification code.",
+          ),
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
         const SizedBox(height: 20),
         CustomTextField(
           controller: emailController,
-          labelText: "Email Address",
+          labelText: context.tr('Email Address'),
           prefixIcon: Icons.email_rounded,
           keyboardType: TextInputType.emailAddress,
         ),
         const SizedBox(height: 24),
         PrimaryButton(
-          text: "SEND VERIFICATION CODE",
+          text: context.tr('SEND VERIFICATION CODE'),
           onPressed: requestOtp,
           isLoading: isLoading,
         ),
@@ -225,13 +237,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         const SizedBox(height: 20),
         CustomTextField(
           controller: otpController,
-          labelText: "Verification Code (OTP)",
+          labelText: context.tr('Verification Code (OTP)'),
           prefixIcon: Icons.verified_user_rounded,
           keyboardType: TextInputType.number,
         ),
         const SizedBox(height: 24),
         PrimaryButton(
-          text: "VERIFY CODE",
+          text: context.tr('VERIFY CODE'),
           onPressed: verifyOtp,
           isLoading: isLoading,
         ),
@@ -239,9 +251,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         Center(
           child: TextButton(
             onPressed: isLoading ? null : requestOtp,
-            child: const Text(
-              "Resend Code",
-              style: TextStyle(
+            child: Text(
+              context.tr('Resend Code'),
+              style: const TextStyle(
                 color: AppColors.emerald,
                 fontWeight: FontWeight.bold,
               ),
@@ -256,18 +268,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          "Enter your new secure password.",
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        Text(
+          context.tr('Enter your new secure password.'),
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
         const SizedBox(height: 20),
         CustomTextField(
           controller: newPasswordController,
-          labelText: "New Password",
+          labelText: context.tr('New Password'),
           prefixIcon: Icons.lock_rounded,
           obscureText: obscureNewPassword,
           suffixIcon: IconButton(
-            tooltip: obscureNewPassword ? "Show password" : "Hide password",
+            tooltip: context.tr(
+              obscureNewPassword ? 'Show password' : 'Hide password',
+            ),
             icon: Icon(
               obscureNewPassword
                   ? Icons.visibility_off_rounded
@@ -282,11 +296,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         const SizedBox(height: 16),
         CustomTextField(
           controller: confirmPasswordController,
-          labelText: "Confirm New Password",
+          labelText: context.tr('Confirm New Password'),
           prefixIcon: Icons.lock_outline_rounded,
           obscureText: obscureConfirmPassword,
           suffixIcon: IconButton(
-            tooltip: obscureConfirmPassword ? "Show password" : "Hide password",
+            tooltip: context.tr(
+              obscureConfirmPassword ? 'Show password' : 'Hide password',
+            ),
             icon: Icon(
               obscureConfirmPassword
                   ? Icons.visibility_off_rounded
@@ -300,7 +316,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         ),
         const SizedBox(height: 24),
         PrimaryButton(
-          text: "RESET PASSWORD",
+          text: context.tr('RESET PASSWORD'),
           onPressed: resetPassword,
           isLoading: isLoading,
         ),
@@ -316,6 +332,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: AppColors.textDark,
+        actions: const [
+          Center(child: LanguageSelector()),
+          SizedBox(width: 12),
+        ],
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -326,11 +346,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               children: [
                 const LogoSection(compact: true),
                 const SizedBox(height: 24),
-                const Align(
+                Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    "Reset Password 🔑",
-                    style: TextStyle(
+                    context.tr('Reset Password'),
+                    style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
                       color: AppColors.textDark,

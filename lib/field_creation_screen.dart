@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
+import 'app_localization.dart';
 import 'app_theme.dart';
 import 'auth_service.dart';
 
@@ -26,7 +27,10 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
     final size = sizeController.text.trim();
 
     if (zoneText.isEmpty || size.isEmpty) {
-      _showMessage("Please enter zone number and field size", Colors.orangeAccent);
+      _showMessage(
+        context.tr('Please enter zone number and field size'),
+        Colors.orangeAccent,
+      );
       return;
     }
 
@@ -35,19 +39,24 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
     });
 
     try {
-      final response = await http.post(
-        Uri.parse("$baseUrl/fields/${widget.farmerId}"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "zone_no": int.tryParse(zoneText) ?? 1,
-          "size": double.tryParse(size) ?? 1.0,
-          "crop_type": "General",
-        }),
-      ).timeout(const Duration(seconds: 4));
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/fields/${widget.farmerId}"),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "zone_no": int.tryParse(zoneText) ?? 1,
+              "size": double.tryParse(size) ?? 1.0,
+              "crop_type": "General",
+            }),
+          )
+          .timeout(const Duration(seconds: 4));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (!mounted) return;
-        _showMessage("Field profile created successfully!", AppColors.emerald);
+        _showMessage(
+          context.tr('Field profile created successfully!'),
+          AppColors.emerald,
+        );
         Navigator.pop(context);
         return;
       }
@@ -60,7 +69,7 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
       );
 
       if (!mounted) return;
-      _showMessage("Field profile created!", AppColors.emerald);
+      _showMessage(context.tr('Field profile created!'), AppColors.emerald);
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
@@ -70,7 +79,7 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
         size: double.tryParse(size) ?? 1.0,
         cropType: "General",
       );
-      _showMessage("Field registered locally!", AppColors.emerald);
+      _showMessage(context.tr('Field registered locally!'), AppColors.emerald);
       Navigator.pop(context);
     } finally {
       if (mounted) {
@@ -84,7 +93,10 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
   void _showMessage(String message, Color bg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(
+          message,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: bg,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -100,7 +112,14 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         foregroundColor: AppColors.textDark,
-        title: const Text("Register New Field", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          context.tr('Register New Field'),
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        actions: const [
+          Center(child: LanguageSelector()),
+          SizedBox(width: 12),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
@@ -129,7 +148,11 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
                       color: AppColors.emerald.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Icon(Icons.grass_rounded, color: AppColors.emerald, size: 28),
+                    child: Icon(
+                      Icons.grass_rounded,
+                      color: AppColors.emerald,
+                      size: 28,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -137,12 +160,21 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Field Profile Details",
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                          context.tr('Field Profile Details'),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                          ),
                         ),
                         Text(
-                          "Add zone parameters for automated water scheduling",
-                          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                          context.tr(
+                            'Add zone parameters for automated water scheduling',
+                          ),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                       ],
                     ),
@@ -152,32 +184,45 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
               const SizedBox(height: 28),
 
               Text(
-                "Zone Number",
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                context.tr('Zone Number'),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: zoneController,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  hintText: "Enter Zone No (e.g. 1 - 28)",
+                  hintText: context.tr('Enter Zone No (e.g. 1 - 28)'),
                   prefixIcon: Icon(Icons.map_rounded, color: AppColors.emerald),
                 ),
               ),
               const SizedBox(height: 20),
 
               Text(
-                "Field Size (Acres)",
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                context.tr('Field Size (Acres)'),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: sizeController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: InputDecoration(
                   hintText: "e.g. 2.5",
-                  prefixIcon: Icon(Icons.square_foot_rounded, color: AppColors.emerald),
-                  suffixText: "Acres",
+                  prefixIcon: Icon(
+                    Icons.square_foot_rounded,
+                    color: AppColors.emerald,
+                  ),
+                  suffixText: context.tr('Acres'),
                 ),
               ),
               const SizedBox(height: 32),
@@ -187,16 +232,32 @@ class _FieldCreationScreenState extends State<FieldCreationScreen> {
                 child: ElevatedButton.icon(
                   onPressed: isLoading ? null : createField,
                   icon: isLoading
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.check_circle_rounded, color: Colors.white),
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.check_circle_rounded,
+                          color: Colors.white,
+                        ),
                   label: Text(
-                    isLoading ? "SAVING..." : "REGISTER FIELD",
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                    context.tr(isLoading ? 'SAVING...' : 'REGISTER FIELD'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.emerald,
                     padding: const EdgeInsets.all(16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                   ),
                 ),
               ),

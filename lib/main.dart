@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'supabase_sensor_service.dart';
+import 'app_localization.dart';
 import 'app_config.dart';
 import 'app_theme.dart';
 import 'login_widgets.dart';
@@ -12,7 +14,10 @@ import 'auth_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SupabaseSensorService.initialize();
+  await Future.wait([
+    SupabaseSensorService.initialize(),
+    AppLocaleController.instance.initialize(),
+  ]);
   runApp(const SmartIrrigationApp());
 }
 
@@ -21,11 +26,21 @@ class SmartIrrigationApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Smart Irrigation',
-      theme: AppTheme.lightTheme,
-      home: const LoginScreen(),
+    return ValueListenableBuilder<Locale>(
+      valueListenable: AppLocaleController.instance.locale,
+      builder: (context, locale, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        onGenerateTitle: (context) => context.tr('Smart Irrigation'),
+        theme: AppTheme.lightTheme,
+        locale: locale,
+        supportedLocales: const [Locale('en'), Locale('si')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: const LoginScreen(),
+      ),
     );
   }
 }
@@ -58,18 +73,12 @@ class _LoginScreenState extends State<LoginScreen>
       duration: const Duration(milliseconds: 900),
     );
 
-    _fadeAnim = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOut,
-    );
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
 
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.08),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOutCubic,
-    ));
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero)
+        .animate(
+          CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+        );
 
     _animController.forward();
   }
@@ -87,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen>
     final password = passwordController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
-      _showMessage("Please enter email and password");
+      _showMessage(context.tr('Please enter email and password'));
       return;
     }
 
@@ -141,7 +150,11 @@ class _LoginScreenState extends State<LoginScreen>
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.info_outline_rounded, color: Colors.white, size: 20),
+            const Icon(
+              Icons.info_outline_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
             const SizedBox(width: 10),
             Expanded(child: Text(message)),
           ],
@@ -165,15 +178,15 @@ class _LoginScreenState extends State<LoginScreen>
         child: isDesktop
             ? Row(
                 children: [
-                  Expanded(
-                    flex: 45,
-                    child: _buildHeroPanel(context),
-                  ),
+                  Expanded(flex: 45, child: _buildHeroPanel(context)),
                   Expanded(
                     flex: 55,
                     child: Center(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 40,
+                          vertical: 24,
+                        ),
                         child: FadeTransition(
                           opacity: _fadeAnim,
                           child: SlideTransition(
@@ -255,7 +268,10 @@ class _LoginScreenState extends State<LoginScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(30),
@@ -289,8 +305,8 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
                 const Spacer(),
                 RichText(
-                  text: const TextSpan(
-                    style: TextStyle(
+                  text: TextSpan(
+                    style: const TextStyle(
                       fontSize: 40,
                       fontWeight: FontWeight.bold,
                       height: 1.15,
@@ -298,19 +314,19 @@ class _LoginScreenState extends State<LoginScreen>
                       color: Colors.white,
                     ),
                     children: [
-                      TextSpan(text: "Grow Smarter.\n"),
+                      TextSpan(text: context.tr('Grow Smarter.') + "\n"),
                       TextSpan(
-                        text: "Save Every Drop.",
-                        style: TextStyle(
-                          color: AppColors.freshGreen,
-                        ),
+                        text: context.tr('Save Every Drop.'),
+                        style: const TextStyle(color: AppColors.freshGreen),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  "AI-powered irrigation that helps you optimize water usage, improve crop health, and make smarter farming decisions.",
+                  context.tr(
+                    'AI-powered irrigation that helps you optimize water usage, improve crop health, and make smarter farming decisions.',
+                  ),
                   style: TextStyle(
                     fontSize: 15,
                     height: 1.5,
@@ -318,29 +334,38 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                 ),
                 const SizedBox(height: 36),
-                const FeatureBadge(
+                FeatureBadge(
                   icon: Icons.bolt_rounded,
-                  title: "AI-Powered Decisions",
-                  description: "Predictive irrigation schedules based on soil & weather",
+                  title: context.tr('AI-Powered Decisions'),
+                  description: context.tr(
+                    'Predictive irrigation schedules based on soil & weather',
+                  ),
                   iconColor: AppColors.freshGreen,
                 ),
                 const SizedBox(height: 12),
-                const FeatureBadge(
+                FeatureBadge(
                   icon: Icons.water_drop_rounded,
-                  title: "Smart Water Optimization",
-                  description: "Save up to 40% reservoir water with precise allocation",
+                  title: context.tr('Smart Water Optimization'),
+                  description: context.tr(
+                    'Save up to 40% reservoir water with precise allocation',
+                  ),
                   iconColor: AppColors.skyBlue,
                 ),
                 const SizedBox(height: 12),
-                const FeatureBadge(
+                FeatureBadge(
                   icon: Icons.analytics_rounded,
-                  title: "Real-Time Monitoring",
-                  description: "Live moisture sensors & reservoir telemetry",
+                  title: context.tr('Real-Time Monitoring'),
+                  description: context.tr(
+                    'Live moisture sensors & reservoir telemetry',
+                  ),
                   iconColor: AppColors.freshGreen,
                 ),
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(16),
@@ -353,9 +378,9 @@ class _LoginScreenState extends State<LoginScreen>
                         size: 20,
                       ),
                       const SizedBox(width: 10),
-                      const Text(
-                        "IoT Telemetry Active",
-                        style: TextStyle(
+                      Text(
+                        context.tr('IoT Telemetry Active'),
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -363,14 +388,17 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                       const Spacer(),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.freshGreen.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Text(
-                          "CONNECTED",
-                          style: TextStyle(
+                        child: Text(
+                          context.tr('CONNECTED'),
+                          style: const TextStyle(
                             color: AppColors.freshGreen,
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
@@ -394,13 +422,13 @@ class _LoginScreenState extends State<LoginScreen>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Center(
-            child: LogoSection(compact: true),
-          ),
+          Row(children: [const Spacer(), const LanguageSelector()]),
+          const SizedBox(height: 4),
+          const Center(child: LogoSection(compact: true)),
           const SizedBox(height: 28),
-          const Text(
-            "Welcome 👋",
-            style: TextStyle(
+          Text(
+            context.tr('Welcome'),
+            style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
               color: AppColors.textDark,
@@ -408,9 +436,9 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            "Sign in to continue managing your irrigation system.",
-            style: TextStyle(
+          Text(
+            context.tr('Sign in to continue managing your irrigation system.'),
+            style: const TextStyle(
               fontSize: 14,
               color: AppColors.textSecondary,
               height: 1.4,
@@ -419,8 +447,8 @@ class _LoginScreenState extends State<LoginScreen>
           const SizedBox(height: 28),
           CustomTextField(
             controller: emailController,
-            labelText: "Email or Username",
-            hintText: "Enter your email or username",
+            labelText: context.tr('Email or Username'),
+            hintText: context.tr('Enter your email or username'),
             prefixIcon: Icons.person_outline_rounded,
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
@@ -428,8 +456,8 @@ class _LoginScreenState extends State<LoginScreen>
           const SizedBox(height: 18),
           CustomTextField(
             controller: passwordController,
-            labelText: "Password",
-            hintText: "Enter your password",
+            labelText: context.tr('Password'),
+            hintText: context.tr('Enter your password'),
             prefixIcon: Icons.lock_outline_rounded,
             obscureText: obscurePassword,
             textInputAction: TextInputAction.done,
@@ -464,9 +492,9 @@ class _LoginScreenState extends State<LoginScreen>
                 foregroundColor: AppColors.emerald,
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
               ),
-              child: const Text(
-                "Forgot Password?",
-                style: TextStyle(
+              child: Text(
+                context.tr('Forgot Password?'),
+                style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -475,7 +503,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           const SizedBox(height: 16),
           PrimaryButton(
-            text: "Sign In",
+            text: context.tr('Sign In'),
             isLoading: isLoading,
             onPressed: isLoading ? null : loginUser,
             icon: Icons.arrow_forward_rounded,
@@ -483,11 +511,13 @@ class _LoginScreenState extends State<LoginScreen>
           const SizedBox(height: 24),
           Row(
             children: [
-              Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+              Expanded(
+                child: Divider(color: Colors.grey.shade300, thickness: 1),
+              ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Text(
-                  "Smart Water Management",
+                  context.tr('Smart Water Management'),
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade500,
@@ -495,7 +525,9 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                 ),
               ),
-              Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+              Expanded(
+                child: Divider(color: Colors.grey.shade300, thickness: 1),
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -503,9 +535,9 @@ class _LoginScreenState extends State<LoginScreen>
             alignment: WrapAlignment.center,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Text(
-                "Don't have an account?",
-                style: TextStyle(
+              Text(
+                context.tr("Don't have an account?"),
+                style: const TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
                 ),
@@ -521,11 +553,14 @@ class _LoginScreenState extends State<LoginScreen>
                 },
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.emerald,
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
                 ),
-                child: const Text(
-                  "Create an account",
-                  style: TextStyle(
+                child: Text(
+                  context.tr('Create an account'),
+                  style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                   ),
@@ -533,7 +568,6 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ],
           ),
-
         ],
       ),
     );

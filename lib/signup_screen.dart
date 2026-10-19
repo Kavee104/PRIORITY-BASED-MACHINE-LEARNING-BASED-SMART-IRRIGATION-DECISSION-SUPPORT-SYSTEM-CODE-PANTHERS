@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
+import 'app_localization.dart';
 import 'app_theme.dart';
 import 'auth_service.dart';
 import 'login_widgets.dart';
@@ -42,7 +43,10 @@ class _SignupScreenState extends State<SignupScreen> {
         lastName.isEmpty ||
         email.isEmpty ||
         password.isEmpty) {
-      _showMessage("Please fill all required fields", Colors.orangeAccent);
+      _showMessage(
+        context.tr('Please fill all required fields'),
+        Colors.orangeAccent,
+      );
       return;
     }
 
@@ -65,7 +69,7 @@ class _SignupScreenState extends State<SignupScreen> {
     }
 
     if (password != confirmPassword) {
-      _showMessage("Passwords do not match", Colors.redAccent);
+      _showMessage(context.tr('Passwords do not match'), Colors.redAccent);
       return;
     }
 
@@ -105,7 +109,7 @@ class _SignupScreenState extends State<SignupScreen> {
         );
         TextInput.finishAutofillContext(shouldSave: true);
         _showMessage(
-          "Signup successful! You can now login.",
+          context.tr('Signup successful! You can now login.'),
           AppColors.emerald,
         );
         Navigator.popUntil(context, (route) => route.isFirst);
@@ -152,6 +156,10 @@ class _SignupScreenState extends State<SignupScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: AppColors.textDark,
+        actions: const [
+          Center(child: LanguageSelector()),
+          SizedBox(width: 12),
+        ],
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -162,11 +170,11 @@ class _SignupScreenState extends State<SignupScreen> {
               children: [
                 const LogoSection(compact: true),
                 const SizedBox(height: 24),
-                const Align(
+                Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    "Farmer Registration 🌾",
-                    style: TextStyle(
+                    context.tr('Farmer Registration'),
+                    style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
                       color: AppColors.textDark,
@@ -174,11 +182,13 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Align(
+                Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    "Sign up for AI-powered smart irrigation access",
-                    style: TextStyle(
+                    context.tr(
+                      'Sign up for AI-powered smart irrigation access',
+                    ),
+                    style: const TextStyle(
                       fontSize: 13,
                       color: AppColors.textSecondary,
                     ),
@@ -191,7 +201,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     Expanded(
                       child: CustomTextField(
                         controller: firstNameController,
-                        labelText: "First Name",
+                        labelText: context.tr('First Name'),
                         prefixIcon: Icons.person_rounded,
                       ),
                     ),
@@ -199,7 +209,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     Expanded(
                       child: CustomTextField(
                         controller: lastNameController,
-                        labelText: "Last Name",
+                        labelText: context.tr('Last Name'),
                         prefixIcon: Icons.person_outline_rounded,
                       ),
                     ),
@@ -209,7 +219,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                 CustomTextField(
                   controller: emailController,
-                  labelText: "Email Address",
+                  labelText: context.tr('Email Address'),
                   hintText: "farmer@example.com",
                   prefixIcon: Icons.email_rounded,
                   keyboardType: TextInputType.emailAddress,
@@ -231,7 +241,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                 CustomTextField(
                   controller: passwordController,
-                  labelText: "Password",
+                  labelText: context.tr('Password'),
                   prefixIcon: Icons.lock_rounded,
                   obscureText: obscurePassword,
                   suffixIcon: IconButton(
@@ -262,7 +272,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                 CustomTextField(
                   controller: confirmPasswordController,
-                  labelText: "Confirm Password",
+                  labelText: context.tr('Confirm Password'),
                   prefixIcon: Icons.lock_outline_rounded,
                   obscureText: obscureConfirm,
                   textInputAction: TextInputAction.done,
@@ -281,7 +291,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 const SizedBox(height: 28),
 
                 PrimaryButton(
-                  text: "CREATE FARMER ACCOUNT",
+                  text: context.tr('CREATE FARMER ACCOUNT'),
                   onPressed: signupUser,
                   isLoading: isLoading,
                 ),

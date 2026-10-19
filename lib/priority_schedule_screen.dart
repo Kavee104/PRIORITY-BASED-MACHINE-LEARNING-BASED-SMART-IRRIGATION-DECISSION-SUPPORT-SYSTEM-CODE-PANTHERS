@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
+import 'app_localization.dart';
 import 'app_theme.dart';
 import 'weather_service.dart';
 import 'auth_service.dart';
@@ -60,9 +61,12 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                 ),
               ),
               const SizedBox(width: 12),
-              const Text(
-                'AgTech Weather Telemetry',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Text(
+                context.tr('AgTech Weather Telemetry'),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -99,7 +103,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: const Text('OK'),
+              child: Text(context.tr('OK')),
             ),
           ],
         ),
@@ -201,11 +205,13 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         foregroundColor: AppColors.textDark,
-        title: const Text(
-          "Priority Schedule",
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Text(
+          context.tr('Priority Schedule'),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          const Center(child: LanguageSelector()),
+          const SizedBox(width: 4),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppColors.emerald),
             onPressed: isLoading ? null : fetchSchedule,
@@ -243,7 +249,11 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Adaptive Policy Mode: $releaseStatus Water Release",
+                  context.tr('Adaptive Policy Mode') +
+                      ': ' +
+                      context.tr(releaseStatus) +
+                      ' ' +
+                      context.tr('Water Release'),
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: isCompact ? 14 : 14.5,
@@ -252,7 +262,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  policyDescription,
+                  context.tr(policyDescription),
                   style: TextStyle(
                     fontSize: isCompact ? 11.5 : 12,
                     color: AppColors.textDark,
@@ -274,10 +284,10 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
     }
 
     if (schedule.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
-          "No priority schedule available",
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
+          context.tr('No priority schedule available'),
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
         ),
       );
     }

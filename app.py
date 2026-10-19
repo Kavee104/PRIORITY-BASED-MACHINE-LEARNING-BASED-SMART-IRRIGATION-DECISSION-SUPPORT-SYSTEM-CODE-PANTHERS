@@ -812,7 +812,28 @@ def set_reservoir_status():
 # --- User management / auth endpoints ---
 def _admin_key_valid(req):
   key = req.headers.get('X-Admin-Key') or req.args.get('admin_key')
-  return key == ADMIN_KEY
+  if key == ADMIN_KEY:
+    return True
+
+  # Mobile admins authenticate through /login. Accept that signed session for
+  # admin endpoints so the production ADMIN_KEY never has to be embedded in
+  # the APK.
+  authorization = req.headers.get('Authorization', '')
+  if not authorization.startswith('Bearer '):
+    return False
+  try:
+    payload = session_signer.loads(
+      authorization[7:], max_age=SESSION_MAX_AGE_SECONDS)
+  except (BadSignature, SignatureExpired):
+    return False
+
+  username = payload.get('username')
+  user = users.get(username)
+  return bool(
+    payload.get('role') == 'admin'
+    and user
+    and user.get('role') == 'admin'
+  )
 
 
 @app.route('/admin/create-officer', methods=['POST'])

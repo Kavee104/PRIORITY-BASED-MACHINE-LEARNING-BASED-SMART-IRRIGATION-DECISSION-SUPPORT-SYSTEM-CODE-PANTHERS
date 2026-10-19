@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_localization.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'app_config.dart';
@@ -33,7 +34,13 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   String? _usersError;
 
   final String baseUrl = AppConfig.apiBaseUrl;
-  static const String _adminKey = 'supersecretadminkey';
+
+  Map<String, String> get _adminHeaders {
+    final token = AuthService.instance.sessionToken;
+    return {
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
 
   @override
   void initState() {
@@ -66,11 +73,12 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/admin/create-user'),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Admin-Key': _adminKey,
-        },
-        body: jsonEncode({'username': username, 'password': password, 'role': role}),
+        headers: {'Content-Type': 'application/json', ..._adminHeaders},
+        body: jsonEncode({
+          'username': username,
+          'password': password,
+          'role': role,
+        }),
       );
 
       if (!mounted) return;
@@ -83,7 +91,10 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           roleStr: role,
           customId: data['user_id'] is int ? data['user_id'] as int : null,
         );
-        _showBanner('User "$username" created as $role!', Colors.green.shade700);
+        _showBanner(
+          'User "$username" created as $role!',
+          Colors.green.shade700,
+        );
         _formKey.currentState!.reset();
         _usernameController.clear();
         _passwordController.clear();
@@ -114,16 +125,15 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       _usersError = null;
     });
 
-    final localAccounts = AuthService.instance.getAllAccounts().map((a) => {
-      'username': a.username,
-      'role': a.roleString,
-    }).toList();
+    final localAccounts = AuthService.instance
+        .getAllAccounts()
+        .map((a) => {'username': a.username, 'role': a.roleString})
+        .toList();
 
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/admin/users'),
-        headers: {'X-Admin-Key': _adminKey},
-      ).timeout(const Duration(seconds: 3));
+      final response = await http
+          .get(Uri.parse('$baseUrl/admin/users'), headers: _adminHeaders)
+          .timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
 
@@ -177,19 +187,27 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
   Color _roleColor(String role) {
     switch (role) {
-      case 'admin': return Colors.deepPurple;
-      case 'officer': return AppColors.aquaBlue;
-      case 'farmer': return AppColors.emerald;
-      default: return AppColors.textSecondary;
+      case 'admin':
+        return Colors.deepPurple;
+      case 'officer':
+        return AppColors.aquaBlue;
+      case 'farmer':
+        return AppColors.emerald;
+      default:
+        return AppColors.textSecondary;
     }
   }
 
   IconData _roleIcon(String role) {
     switch (role) {
-      case 'admin': return Icons.admin_panel_settings_rounded;
-      case 'officer': return Icons.badge_rounded;
-      case 'farmer': return Icons.agriculture_rounded;
-      default: return Icons.person_rounded;
+      case 'admin':
+        return Icons.admin_panel_settings_rounded;
+      case 'officer':
+        return Icons.badge_rounded;
+      case 'farmer':
+        return Icons.agriculture_rounded;
+      default:
+        return Icons.person_rounded;
     }
   }
 
@@ -201,19 +219,29 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         backgroundColor: Colors.white,
         foregroundColor: AppColors.textDark,
         elevation: 0,
-        title: const Text(
-          'User Role Management',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Text(
+          context.tr('User Role Management'),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
+        actions: const [
+          Center(child: LanguageSelector()),
+          SizedBox(width: 12),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: AppColors.emerald,
           indicatorWeight: 3,
           labelColor: AppColors.emerald,
           unselectedLabelColor: AppColors.textSecondary,
-          tabs: const [
-            Tab(icon: Icon(Icons.person_add_alt_1_rounded), text: 'Create User'),
-            Tab(icon: Icon(Icons.group_rounded), text: 'All Users'),
+          tabs: [
+            Tab(
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              text: context.tr('Create User'),
+            ),
+            Tab(
+              icon: const Icon(Icons.group_rounded),
+              text: context.tr('All Users'),
+            ),
           ],
         ),
       ),
@@ -232,220 +260,291 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         child: AutofillGroup(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF7C3AED), Color(0xFF4F46E5)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            children: [
+              // Header
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF7C3AED), Color(0xFF4F46E5)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.deepPurple.withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.deepPurple.withOpacity(0.3),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.manage_accounts, color: Colors.white, size: 32),
-                  ),
-                  const SizedBox(width: 16),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Setup New User',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Assign roles: Admin · Officer · Farmer',
-                          style: TextStyle(color: Colors.white70, fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-            const Text(
-              'Select Role',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: Colors.black87),
-            ),
-            const SizedBox(height: 12),
-
-            // Role selector
-            Row(
-              children: ['farmer', 'admin'].map((role) {
-                final selected = _selectedRole == role;
-                final color = _roleColor(role);
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _selectedRole = role),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: selected ? color : Colors.white,
+                        color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: selected ? color : Colors.grey.shade300,
-                          width: selected ? 2 : 1,
-                        ),
-                        boxShadow: selected
-                            ? [BoxShadow(color: color.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))]
-                            : [],
                       ),
+                      child: const Icon(
+                        Icons.manage_accounts,
+                        color: Colors.white,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(_roleIcon(role), color: selected ? Colors.white : color, size: 26),
-                          const SizedBox(height: 6),
                           Text(
-                            role[0].toUpperCase() + role.substring(1),
-                            style: TextStyle(
-                              color: selected ? Colors.white : Colors.black87,
-                              fontWeight: FontWeight.w600,
+                            context.tr('Setup New User'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            context.tr(
+                              'Assign roles: Admin · Officer · Farmer',
+                            ),
+                            style: const TextStyle(
+                              color: Colors.white70,
                               fontSize: 13,
                             ),
                           ),
                         ],
                       ),
                     ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
+              Text(
+                context.tr('Select Role'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Role selector
+              Row(
+                children: ['farmer', 'admin'].map((role) {
+                  final selected = _selectedRole == role;
+                  final color = _roleColor(role);
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedRole = role),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: selected ? color : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: selected ? color : Colors.grey.shade300,
+                            width: selected ? 2 : 1,
+                          ),
+                          boxShadow: selected
+                              ? [
+                                  BoxShadow(
+                                    color: color.withOpacity(0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ]
+                              : [],
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              _roleIcon(role),
+                              color: selected ? Colors.white : color,
+                              size: 26,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              context.tr(
+                                role[0].toUpperCase() + role.substring(1),
+                              ),
+                              style: TextStyle(
+                                color: selected ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+
+              const SizedBox(height: 24),
+              _buildLabel('Username / Email'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _usernameController,
+                textInputAction: TextInputAction.next,
+                decoration: _inputDeco(
+                  'Enter username or email',
+                  Icons.person_outline,
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty)
+                    return 'Username is required';
+                  if (v.trim().length < 3) return 'Minimum 3 characters';
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+              _buildLabel('Password'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                textInputAction: TextInputAction.next,
+                decoration: _inputDeco('Enter password', Icons.lock_outline)
+                    .copyWith(
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
+                      ),
+                    ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty)
+                    return 'Password is required';
+                  if (v.trim().length < 4) return 'Minimum 4 characters';
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+              _buildLabel('Confirm Password'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _confirmPasswordController,
+                obscureText: _obscureConfirm,
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) {
+                  if (!_isCreating) _createUser();
+                },
+                decoration: _inputDeco('Re-enter password', Icons.lock_outline)
+                    .copyWith(
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureConfirm
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscureConfirm = !_obscureConfirm),
+                      ),
+                    ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty)
+                    return 'Please confirm password';
+                  if (v.trim() != _passwordController.text.trim())
+                    return 'Passwords do not match';
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 24),
+
+              // Role info badge
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: _roleColor(_selectedRole).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: _roleColor(_selectedRole).withOpacity(0.3),
                   ),
-                );
-              }).toList(),
-            ),
-
-            const SizedBox(height: 24),
-            _buildLabel('Username / Email'),
-            const SizedBox(height: 8),             TextFormField(
-              controller: _usernameController,
-              textInputAction: TextInputAction.next,
-              decoration: _inputDeco('Enter username or email', Icons.person_outline),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Username is required';
-                if (v.trim().length < 3) return 'Minimum 3 characters';
-                return null;
-              },
-            ),
-
-            const SizedBox(height: 16),
-            _buildLabel('Password'),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _passwordController,
-              obscureText: _obscurePassword,
-              textInputAction: TextInputAction.next,
-              decoration: _inputDeco('Enter password', Icons.lock_outline).copyWith(
-                suffixIcon: IconButton(
-                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                 ),
-              ),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Password is required';
-                if (v.trim().length < 4) return 'Minimum 4 characters';
-                return null;
-              },
-            ),
-
-            const SizedBox(height: 16),
-            _buildLabel('Confirm Password'),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _confirmPasswordController,
-              obscureText: _obscureConfirm,
-              textInputAction: TextInputAction.done,
-              onFieldSubmitted: (_) { if (!_isCreating) _createUser(); },
-              decoration: _inputDeco('Re-enter password', Icons.lock_outline).copyWith(
-                suffixIcon: IconButton(
-                  icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
-                  onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
-                ),
-              ),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Please confirm password';
-                if (v.trim() != _passwordController.text.trim()) return 'Passwords do not match';
-                return null;
-              },
-            ),
-
-            const SizedBox(height: 24),
-
-            // Role info badge
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              decoration: BoxDecoration(
-                color: _roleColor(_selectedRole).withOpacity(0.08),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: _roleColor(_selectedRole).withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(_roleIcon(_selectedRole), color: _roleColor(_selectedRole), size: 20),
-                  const SizedBox(width: 10),
-                  Text(
-                    'This user will have ${_selectedRole.toUpperCase()} access',
-                    style: TextStyle(
+                child: Row(
+                  children: [
+                    Icon(
+                      _roleIcon(_selectedRole),
                       color: _roleColor(_selectedRole),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13.5,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'This user will have ${_selectedRole.toUpperCase()} access',
+                      style: TextStyle(
+                        color: _roleColor(_selectedRole),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isCreating ? null : _createUser,
+                  icon: _isCreating
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.add_circle_outline,
+                          color: Colors.white,
+                        ),
+                  label: Text(
+                    context.tr(_isCreating ? 'Creating...' : 'CREATE USER'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isCreating ? null : _createUser,
-                icon: _isCreating
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.add_circle_outline, color: Colors.white),
-                label: Text(
-                  _isCreating ? 'Creating...' : 'CREATE USER',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  padding: const EdgeInsets.all(16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  elevation: 2,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple,
+                    padding: const EdgeInsets.all(16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 2,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-     ),
     );
   }
 
@@ -459,11 +558,15 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             children: [
               Text(
                 'Registered Farmers (${_users.length})',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.black87,
+                ),
               ),
               IconButton(
                 icon: const Icon(Icons.refresh, color: Colors.deepPurple),
-                tooltip: 'Refresh',
+                tooltip: context.tr('Refresh'),
                 onPressed: _fetchUsers,
               ),
             ],
@@ -471,132 +574,163 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         ),
         Expanded(
           child: _isLoadingUsers
-              ? const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
+              ? const Center(
+                  child: CircularProgressIndicator(color: Colors.deepPurple),
+                )
               : _usersError != null
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.cloud_off,
+                        size: 60,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _usersError!,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _fetchUsers,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(context.tr('Retry')),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : _users.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.people_outline,
+                        size: 60,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        context.tr(
+                          'No registered farmers found.\nTap refresh to load.',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _fetchUsers,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(context.tr('Load Users')),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _users.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final user = _users[index];
+                    final role = (user['role'] ?? 'farmer') as String;
+                    final username = (user['username'] ?? '') as String;
+                    final color = _roleColor(role);
+
+                    return Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.grey.shade200),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
                         children: [
-                          Icon(Icons.cloud_off, size: 60, color: Colors.grey.shade400),
-                          const SizedBox(height: 12),
-                          Text(_usersError!, style: TextStyle(color: Colors.grey.shade600)),
-                          const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            onPressed: _fetchUsers,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Retry'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.deepPurple,
-                              foregroundColor: Colors.white,
+                          Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.12),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              _roleIcon(role),
+                              color: color,
+                              size: 26,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  username,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(Icons.circle, size: 8, color: color),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      context.tr(role.toUpperCase()),
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        color: color,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              context.tr(
+                                role[0].toUpperCase() + role.substring(1),
+                              ),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: color,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    )
-                  : _users.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.people_outline, size: 60, color: Colors.grey.shade400),
-                              const SizedBox(height: 12),
-                              Text(
-                                'No registered farmers found.\nTap refresh to load.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.grey.shade600),
-                              ),
-                              const SizedBox(height: 16),
-                              ElevatedButton.icon(
-                                onPressed: _fetchUsers,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Load Users'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.deepPurple,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _users.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 10),
-                          itemBuilder: (context, index) {
-                            final user = _users[index];
-                            final role = (user['role'] ?? 'farmer') as String;
-                            final username = (user['username'] ?? '') as String;
-                            final color = _roleColor(role);
-
-                            return Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: Colors.grey.shade200),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.04),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 50,
-                                    height: 50,
-                                    decoration: BoxDecoration(
-                                      color: color.withOpacity(0.12),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(_roleIcon(role), color: color, size: 26),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          username,
-                                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Row(
-                                          children: [
-                                            Icon(Icons.circle, size: 8, color: color),
-                                            const SizedBox(width: 5),
-                                            Text(
-                                              role.toUpperCase(),
-                                              style: TextStyle(
-                                                fontSize: 11.5,
-                                                color: color,
-                                                fontWeight: FontWeight.w600,
-                                                letterSpacing: 0.5,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: color.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      role[0].toUpperCase() + role.substring(1),
-                                      style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -604,14 +738,18 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
   Widget _buildLabel(String text) {
     return Text(
-      text,
-      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87),
+      context.tr(text),
+      style: const TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        color: Colors.black87,
+      ),
     );
   }
 
   InputDecoration _inputDeco(String hint, IconData icon) {
     return InputDecoration(
-      hintText: hint,
+      hintText: context.tr(hint),
       hintStyle: TextStyle(color: Colors.grey.shade400),
       prefixIcon: Icon(icon, color: Colors.deepPurple.shade300),
       filled: true,

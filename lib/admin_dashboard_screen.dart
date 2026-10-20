@@ -276,21 +276,44 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ElevatedButton.icon(
             onPressed: () async {
               Navigator.of(ctx).pop();
-              AuthService.instance.clearWaterRequests();
-              setState(() {
-                _waterRequests = [];
-                _requestPage = 0;
-              });
               try {
-                await http.post(
-                  Uri.parse('$baseUrl/admin/clear-requests'),
-                  headers: _adminHeaders,
-                );
-              } catch (_) {}
-              if (mounted) {
+                final response = await http
+                    .post(
+                      Uri.parse('$baseUrl/admin/clear-requests'),
+                      headers: _adminHeaders,
+                    )
+                    .timeout(const Duration(seconds: 20));
+                final body = jsonDecode(response.body);
+                if (response.statusCode != 200) {
+                  throw Exception(
+                    body['message'] ?? 'Could not clear the requests table.',
+                  );
+                }
+
+                AuthService.instance.clearWaterRequests();
+                if (!mounted) return;
+                setState(() {
+                  _waterRequests = [];
+                  _requestPage = 0;
+                });
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Water requests table cleared successfully."),
+                  SnackBar(
+                    content: Text(
+                      body['deleted_count'] == null
+                          ? 'Water requests table cleared successfully.'
+                          : '${body['deleted_count']} request(s) cleared successfully.',
+                    ),
+                    backgroundColor: AppColors.primaryGreen,
+                  ),
+                );
+              } catch (error) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      error.toString().replaceFirst('Exception: ', ''),
+                    ),
+                    backgroundColor: AppColors.danger,
                   ),
                 );
               }

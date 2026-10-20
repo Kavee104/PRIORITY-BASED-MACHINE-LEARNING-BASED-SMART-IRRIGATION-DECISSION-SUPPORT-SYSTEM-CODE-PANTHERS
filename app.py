@@ -2236,11 +2236,48 @@ def admin_reject_request(req_id):
 def admin_clear_requests():
   if not _admin_key_valid(request):
     return jsonify({'status': 'error', 'message': 'admin key required'}), 401
+
+  conn = get_db_connection()
+  if conn is None:
+    return jsonify({
+      'status': 'error',
+      'message': 'Database connection failed. Requests were not cleared.'
+    }), 503
+
+  cursor = None
+  try:
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM irrigation_request')
+    deleted_count = cursor.rowcount
+    conn.commit()
+  except Exception as e:
+    print('MySQL clear requests error:', e)
+    try:
+      conn.rollback()
+    except Exception:
+      pass
+    return jsonify({
+      'status': 'error',
+      'message': 'Could not clear requests from the database.'
+    }), 503
+  finally:
+    if cursor is not None:
+      cursor.close()
+    conn.close()
+
   global water_requests
   water_requests.clear()
   _write_requests_file(water_requests)
-  _audit('REQUESTS_CLEARED', 'admin', 'Cleared all active water requests table')
-  return jsonify({'status': 'success', 'message': 'All requests cleared'}), 200
+  _audit(
+    'REQUESTS_CLEARED',
+    'admin',
+    f'Cleared {deleted_count} water request(s) from the table'
+  )
+  return jsonify({
+    'status': 'success',
+    'message': 'All requests cleared',
+    'deleted_count': deleted_count
+  }), 200
 
 
 # ---------------------------------------------------------------------------

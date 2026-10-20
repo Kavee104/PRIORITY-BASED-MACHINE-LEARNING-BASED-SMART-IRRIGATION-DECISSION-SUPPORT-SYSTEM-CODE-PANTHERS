@@ -104,17 +104,24 @@ def latest_for_field(conn, farmer_id, zone_no, offline_seconds):
 def save_request_snapshot(conn, request_id, farmer_id, field_id, zone_no, reading):
     cursor = conn.cursor(dictionary=True)
     try:
-        cursor.execute("SELECT id FROM iot_devices WHERE device_id = %s", (reading['deviceId'],))
-        device = cursor.fetchone()
-        if not device:
-            return
+        recorded_at = reading.get('recordedAt') or reading.get('SensorRecordedAt')
+        if recorded_at:
+            recorded_at = datetime.fromisoformat(
+                str(recorded_at).replace('Z', '+00:00')).replace(tzinfo=None)
+        else:
+            recorded_at = datetime.now(timezone.utc).replace(tzinfo=None)
         cursor.execute(
             "INSERT INTO request_sensor_snapshots "
-            "(RequestID, FarmerID, FieldID, ZoneNo, iot_device_id, moisture, "
-            "temperature, recorded_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (request_id, farmer_id, field_id, zone_no, device['id'],
-             reading['moisture'], reading['temperature'],
-             datetime.fromisoformat(reading['recordedAt']).replace(tzinfo=None)))
+            "(RequestID, FarmerID, FieldID, ZoneNo, device_id, moisture, "
+            "temperature, recorded_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE device_id = VALUES(device_id), "
+            "moisture = VALUES(moisture), temperature = VALUES(temperature), "
+            "recorded_at = VALUES(recorded_at)",
+            (request_id, farmer_id, field_id, zone_no,
+             reading.get('deviceId') or reading.get('DeviceID'),
+             reading.get('moisture', reading.get('SoilMoisture')),
+             reading.get('temperature', reading.get('SoilTemperature')),
+             recorded_at))
         conn.commit()
     finally:
         cursor.close()
@@ -128,8 +135,7 @@ def request_snapshots(conn, request_ids):
         placeholders = ','.join(['%s'] * len(request_ids))
         cursor.execute(
             "SELECT s.RequestID, s.FarmerID, s.FieldID, s.ZoneNo, s.moisture, "
-            "s.temperature, s.recorded_at, d.device_id FROM request_sensor_snapshots s "
-            "JOIN iot_devices d ON d.id = s.iot_device_id "
+            "s.temperature, s.recorded_at, s.device_id FROM request_sensor_snapshots s "
             f"WHERE s.RequestID IN ({placeholders})", tuple(request_ids))
         return {
             (row['RequestID'], row['FarmerID'], row['FieldID']): {

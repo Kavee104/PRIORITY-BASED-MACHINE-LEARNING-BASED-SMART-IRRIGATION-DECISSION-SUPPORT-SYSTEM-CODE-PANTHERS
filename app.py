@@ -284,13 +284,34 @@ def _supabase_latest_sensors():
       if not readings:
         continue
       reading = readings[0]
+      recorded_at = reading.get('recorded_at')
+      device_status = 'OFFLINE'
+      try:
+        recorded_time = datetime.datetime.fromisoformat(
+          str(recorded_at).replace('Z', '+00:00'),
+        )
+        if recorded_time.tzinfo is None:
+          recorded_time = recorded_time.replace(tzinfo=datetime.timezone.utc)
+        age = datetime.datetime.now(datetime.timezone.utc) - recorded_time
+        if age.total_seconds() <= IOT_OFFLINE_SECONDS:
+          device_status = 'ONLINE'
+      except (TypeError, ValueError):
+        pass
       latest[(int(farmer_id), int(zone_no))] = {
         'SoilMoisture': float(reading['moisture']),
         'SoilTemperature': float(reading['temperature']),
-        'SensorRecordedAt': reading.get('recorded_at'),
+        'SensorRecordedAt': recorded_at,
         'DeviceID': str(device_id),
         'ZoneNo': int(zone_no),
         'SensorSource': 'supabase_live',
+        'farmerId': int(farmer_id),
+        'zoneNo': int(zone_no),
+        'deviceId': str(device_id),
+        'moisture': float(reading['moisture']),
+        'temperature': float(reading['temperature']),
+        'recordedAt': recorded_at,
+        'lastSeen': device.get('last_seen'),
+        'deviceStatus': device_status,
       }
     return latest
   except Exception as e:
@@ -774,40 +795,10 @@ def get_sensor_data():
 
 @app.route('/sensor-data', methods=['POST'])
 def update_sensor_data():
-  data = request.get_json(silent=True)
-  if not isinstance(data, dict):
-    return jsonify({'status': 'error', 'message': 'JSON object required'}), 400
-  device_id = data.get('deviceId')
-  device_token = data.get('deviceToken')
-  if not isinstance(device_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{3,80}', device_id):
-    return jsonify({'status': 'error', 'message': 'Valid deviceId required'}), 400
-  if not isinstance(device_token, str) or not device_token:
-    return jsonify({'status': 'error', 'message': 'deviceToken required'}), 400
-  moisture = data.get('moisture')
-  temperature = data.get('temperature')
-  if (isinstance(moisture, bool) or not isinstance(moisture, (int, float))
-      or not math.isfinite(moisture) or not 0 <= moisture <= 100):
-    return jsonify({'status': 'error', 'message': 'moisture must be a number from 0 to 100'}), 400
-  if (isinstance(temperature, bool) or not isinstance(temperature, (int, float))
-      or not math.isfinite(temperature) or not -40 <= temperature <= 85):
-    return jsonify({'status': 'error', 'message': 'temperature must be a number from -40 to 85 C'}), 400
-  conn = get_db_connection()
-  if not conn:
-    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
-  try:
-    iot_store.record_reading(conn, device_id, device_token, moisture, temperature)
-    return jsonify({'status': 'success', 'message': 'Sensor data recorded',
-                    'deviceId': device_id, 'moisture': moisture,
-                    'temperature': temperature}), 201
-  except iot_store.UnknownDevice:
-    return jsonify({'status': 'error', 'message': 'Unknown or disabled device'}), 404
-  except iot_store.InvalidDeviceToken:
-    return jsonify({'status': 'error', 'message': 'Invalid device token'}), 401
-  except Exception as e:
-    print('IoT sensor write error:', e)
-    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
-  finally:
-    conn.close()
+  return jsonify({
+    'status': 'error',
+    'message': 'Direct MySQL telemetry is retired; use the Supabase ingest function.',
+  }), 410
 
 
 @app.route('/api/user/sensor-data', methods=['GET'])
@@ -815,32 +806,27 @@ def get_user_sensor_data():
   farmer_id = _current_farmer_id()
   if farmer_id is None:
     return jsonify({'status': 'error', 'message': 'Farmer session required'}), 401
-  conn = get_db_connection()
-  if not conn:
-    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
   try:
-    devices = iot_store.list_latest(conn, IOT_OFFLINE_SECONDS, farmer_id)
+    devices = [
+      item for (owner_id, _), item in _supabase_latest_sensors().items()
+      if owner_id == farmer_id
+    ]
     if not devices:
       return jsonify({'status': 'no_device', 'message': 'No ESP32 registered for this user',
                       'devices': []}), 200
-    latest = max(devices, key=lambda d: d['lastSeen'] or '')
+    latest = max(devices, key=lambda d: d['recordedAt'] or '')
     return jsonify({'status': 'success', **latest, 'devices': devices}), 200
   except Exception as e:
     print('IoT user read error:', e)
-    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
-  finally:
-    conn.close()
+    return jsonify({'status': 'error', 'message': 'Supabase IoT data unavailable'}), 503
 
 
 @app.route('/api/admin/sensors', methods=['GET'])
 def get_admin_sensors():
   if not _admin_key_valid(request):
     return jsonify({'status': 'error', 'message': 'admin key required'}), 401
-  conn = get_db_connection()
-  if not conn:
-    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
   try:
-    sensors = iot_store.list_latest(conn, IOT_OFFLINE_SECONDS)
+    sensors = list(_supabase_latest_sensors().values())
     for sensor in sensors:
       farmer = next((u for u in users.values()
                      if u.get('id') == sensor['farmerId'] and u.get('role') == 'farmer'), None)
@@ -848,15 +834,14 @@ def get_admin_sensors():
     return jsonify({'status': 'success', 'sensors': sensors}), 200
   except Exception as e:
     print('IoT admin read error:', e)
-    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
-  finally:
-    conn.close()
+    return jsonify({'status': 'error', 'message': 'Supabase IoT data unavailable'}), 503
 
 
 @app.route('/api/sensor-history/<device_id>', methods=['GET'])
 def get_sensor_history(device_id):
   farmer_id = _current_farmer_id()
-  if not _admin_key_valid(request) and farmer_id is None:
+  is_admin = _admin_key_valid(request)
+  if not is_admin and farmer_id is None:
     return jsonify({'status': 'error', 'message': 'Authorization required'}), 401
   try:
     limit = int(request.args.get('limit', '100'))
@@ -864,21 +849,53 @@ def get_sensor_history(device_id):
     return jsonify({'status': 'error', 'message': 'Invalid limit'}), 400
   if limit < 1 or limit > 500:
     return jsonify({'status': 'error', 'message': 'limit must be 1 to 500'}), 400
-  conn = get_db_connection()
-  if not conn:
-    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
   try:
-    readings = iot_store.history(
-      conn, device_id, limit, None if _admin_key_valid(request) else farmer_id)
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+      raise RuntimeError('Supabase is not configured')
+    headers = {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': f'Bearer {SUPABASE_ANON_KEY}',
+    }
+    if not is_admin:
+      device_response = requests.get(
+        f'{SUPABASE_URL}/rest/v1/iot_devices',
+        headers=headers,
+        params={
+          'select': 'device_id',
+          'device_id': f'eq.{device_id}',
+          'farmer_id': f'eq.{farmer_id}',
+          'active': 'eq.true',
+          'limit': '1',
+        },
+        timeout=5,
+      )
+      device_response.raise_for_status()
+      if not device_response.json():
+        return jsonify({'status': 'error', 'message': 'Device not found'}), 404
+    response = requests.get(
+      f'{SUPABASE_URL}/rest/v1/sensor_readings',
+      headers=headers,
+      params={
+        'select': 'moisture,temperature,recorded_at',
+        'device_id': f'eq.{device_id}',
+        'order': 'recorded_at.desc',
+        'limit': str(limit),
+      },
+      timeout=5,
+    )
+    response.raise_for_status()
+    readings = [{
+      'moisture': float(row['moisture']),
+      'temperature': float(row['temperature']),
+      'recordedAt': row.get('recorded_at'),
+    } for row in response.json()]
+    if not readings:
+      return jsonify({'status': 'error', 'message': 'Device not found'}), 404
     return jsonify({'status': 'success', 'deviceId': device_id,
                     'readings': readings}), 200
-  except iot_store.UnknownDevice:
-    return jsonify({'status': 'error', 'message': 'Device not found'}), 404
   except Exception as e:
     print('IoT history error:', e)
-    return jsonify({'status': 'error', 'message': 'IoT database unavailable'}), 503
-  finally:
-    conn.close()
+    return jsonify({'status': 'error', 'message': 'Supabase IoT data unavailable'}), 503
 
 
 # Simple in-memory reservoir status (level in percent)
@@ -2056,34 +2073,28 @@ def submit_water_request():
     'ZoneNo': zone_no,
   }
 
-  # Keep the reading at request time, independently of future live updates.
+  # The Flutter dashboard reads live telemetry from Supabase and sends the
+  # matching field reading with the request. Preserve that reading in Railway
+  # MySQL so the request retains its original values when telemetry changes.
   if zone_no is not None and current_farmer is not None:
-    conn = get_db_connection()
-    if conn:
-      try:
-        reading = iot_store.latest_for_field(conn, farmer_id, zone_no, IOT_OFFLINE_SECONDS)
-        if reading and reading['deviceStatus'] == 'ONLINE':
-          iot_store.save_request_snapshot(conn, new_req_id, farmer_id, field_id, zone_no, reading)
-          req.update({
-            'SoilMoisture': reading['moisture'],
-            'SoilTemperature': reading['temperature'],
-            'SensorRecordedAt': reading['recordedAt'],
-            'DeviceID': reading['deviceId'],
-            'ZoneNo': zone_no,
-          })
-      except Exception as e:
-        print('Sensor snapshot write error:', e)
-      finally:
-        conn.close()
-
-  # The Flutter dashboards use Supabase for live telemetry while this Flask
-  # service may use a separate MySQL connection. If MySQL had no matching
-  # reading, retain the authenticated farmer's validated Supabase reading that
-  # accompanied the request.
-  if req.get('SoilMoisture') is None and current_farmer is not None:
     client_snapshot = _validated_client_sensor_snapshot(data, zone_no)
     if client_snapshot:
       req.update(client_snapshot)
+      snapshot_conn = get_db_connection()
+      if snapshot_conn:
+        try:
+          iot_store.save_request_snapshot(
+            snapshot_conn,
+            new_req_id,
+            farmer_id,
+            field_id,
+            zone_no,
+            client_snapshot,
+          )
+        except Exception as e:
+          print('Supabase request snapshot write error:', e)
+        finally:
+          snapshot_conn.close()
 
   water_requests.insert(0, req)  # newest first
   _audit('WATER_REQUEST', f'farmer_{farmer_id}', f'Submitted water request #{req["RequestID"]} for field #{field_id} ({zone_name})')

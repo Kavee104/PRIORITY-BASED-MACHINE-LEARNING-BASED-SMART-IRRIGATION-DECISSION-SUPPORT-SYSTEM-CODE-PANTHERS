@@ -57,29 +57,19 @@ class IotApiTests(unittest.TestCase):
 
     def test_ingest_rejects_bad_input_before_database_access(self):
         with patch.object(backend, 'get_db_connection') as connection:
-            self.assertEqual(self.client.post('/sensor-data', data='bad',
-                              content_type='application/json').status_code, 400)
-            for change in ({'moisture': -1}, {'moisture': '47'},
-                           {'temperature': 200}, {'deviceId': ''},
-                           {'deviceToken': ''}):
-                response = self.client.post('/sensor-data', json={**self.payload, **change})
-                self.assertEqual(response.status_code, 400)
+            response = self.client.post('/sensor-data', json=self.payload)
+            self.assertEqual(response.status_code, 410)
+            self.assertIn('Supabase', response.json['message'])
             connection.assert_not_called()
 
     def test_unknown_and_invalid_token_are_rejected(self):
-        for error, expected in ((iot_store.UnknownDevice(), 404),
-                                (iot_store.InvalidDeviceToken(), 401)):
-            connection = FakeConnection()
-            with patch.object(backend, 'get_db_connection', return_value=connection), \
-                 patch.object(backend.iot_store, 'record_reading', side_effect=error):
-                response = self.client.post('/sensor-data', json=self.payload)
-            self.assertEqual(response.status_code, expected)
-            self.assertTrue(connection.closed)
+        response = self.client.post('/sensor-data', json=self.payload)
+        self.assertEqual(response.status_code, 410)
 
     def test_database_unavailable_returns_503(self):
         with patch.object(backend, 'get_db_connection', return_value=None):
             response = self.client.post('/sensor-data', json=self.payload)
-        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.status_code, 410)
 
     def test_mysql_utc_request_time_is_displayed_in_sri_lanka_time(self):
         utc_time = datetime(2026, 10, 19, 7, 30, 0)
@@ -106,34 +96,12 @@ class IotApiTests(unittest.TestCase):
         self.assertFalse(bad_connection.committed)
 
     def test_post_registered_device_inserts_one_reading_and_updates_last_seen(self):
-        token_hash = hashlib.sha256(self.payload['deviceToken'].encode()).hexdigest()
-        connection = FakeConnection({'id': 1, 'status': 'OFFLINE',
-                                     'device_token_hash': token_hash})
-        with patch.object(backend, 'get_db_connection', return_value=connection):
-            response = self.client.post('/sensor-data', json={
-                **self.payload, 'moisture': 45, 'temperature': 30.5})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json['deviceId'], 'ESP32_ZONE_01')
-        self.assertEqual(response.json['moisture'], 45)
-        self.assertEqual(response.json['temperature'], 30.5)
-        self.assertEqual(connection.readings, [(1, 45, 30.5)])
-        self.assertIsNotNone(connection.last_seen)
-        self.assertEqual(connection.device['status'], 'ONLINE')
-        self.assertTrue(connection.committed)
-        self.assertTrue(connection.closed)
+        response = self.client.post('/sensor-data', json=self.payload)
+        self.assertEqual(response.status_code, 410)
 
     def test_post_registered_device_with_wrong_token_inserts_nothing(self):
-        token_hash = hashlib.sha256('correct-secret-token'.encode()).hexdigest()
-        connection = FakeConnection({'id': 1, 'status': 'OFFLINE',
-                                     'device_token_hash': token_hash})
-        with patch.object(backend, 'get_db_connection', return_value=connection):
-            response = self.client.post('/sensor-data', json=self.payload)
-        self.assertEqual(response.status_code, 401)
-        self.assertEqual(connection.readings, [])
-        self.assertIsNone(connection.last_seen)
-        self.assertFalse(connection.committed)
-        self.assertTrue(connection.rolled_back)
-        self.assertTrue(connection.closed)
+        response = self.client.post('/sensor-data', json=self.payload)
+        self.assertEqual(response.status_code, 410)
 
     def test_farmer_identity_comes_from_signed_session(self):
         user = {'id': 98765, 'role': 'farmer', 'password_hash': 'unused'}
@@ -141,21 +109,20 @@ class IotApiTests(unittest.TestCase):
         sensor = {'deviceId': 'ESP32_ZONE_01', 'farmerId': 98765,
                   'zoneNo': 1, 'moisture': 47.0, 'temperature': 30.5,
                   'deviceStatus': 'ONLINE', 'lastSeen': None, 'recordedAt': None}
+        latest_values = {(98765, 1): sensor}
         with patch.dict(backend.users, {'iot_test_user': user}), \
-             patch.object(backend, 'get_db_connection', return_value=FakeConnection()), \
-             patch.object(backend.iot_store, 'list_latest', return_value=[sensor]) as latest:
+             patch.object(backend, '_supabase_latest_sensors',
+                          return_value=latest_values):
             no_token = self.client.get('/api/user/sensor-data')
             response = self.client.get('/api/user/sensor-data',
                                        headers={'Authorization': f'Bearer {token}'})
         self.assertEqual(no_token.status_code, 401)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json['farmerId'], 98765)
-        self.assertEqual(latest.call_args.args[2], 98765)
 
     def test_admin_route_requires_existing_admin_key(self):
         self.assertEqual(self.client.get('/api/admin/sensors').status_code, 401)
-        with patch.object(backend, 'get_db_connection', return_value=FakeConnection()), \
-             patch.object(backend.iot_store, 'list_latest', return_value=[]):
+        with patch.object(backend, '_supabase_latest_sensors', return_value={}):
             response = self.client.get('/api/admin/sensors',
                 headers={'X-Admin-Key': backend.ADMIN_KEY})
         self.assertEqual(response.status_code, 200)
@@ -167,8 +134,7 @@ class IotApiTests(unittest.TestCase):
         with patch.dict(backend.users, {
                 'mobile_admin': admin_user,
                 'mobile_farmer': farmer_user,
-             }), patch.object(backend, 'get_db_connection', return_value=FakeConnection()), \
-             patch.object(backend.iot_store, 'list_latest', return_value=[]):
+             }), patch.object(backend, '_supabase_latest_sensors', return_value={}):
             admin_token = backend._session_token('mobile_admin', admin_user)
             farmer_token = backend._session_token('mobile_farmer', farmer_user)
             admin_response = self.client.get(
@@ -249,6 +215,7 @@ class IotApiTests(unittest.TestCase):
         fields = {98765: [{'FieldID': 4, 'ZoneNo': 2, 'Size': 3.5}]}
         field_connection = FakeConnection({'ZoneNo': 2, 'Size': 3.5})
         request_connection = FakeConnection()
+        snapshot_connection = FakeConnection()
         with (
             patch.dict(backend.users, {'iot_test_user': user}),
             patch.object(backend, 'farmer_fields', fields),
@@ -256,7 +223,9 @@ class IotApiTests(unittest.TestCase):
             patch.object(backend, 'get_db_connection') as get_connection,
             patch.object(backend, '_write_requests_file'),
         ):
-            get_connection.side_effect = [field_connection, request_connection, None]
+            get_connection.side_effect = [
+                field_connection, request_connection, snapshot_connection,
+            ]
             response = self.client.post(
                 '/request-water', json=payload,
                 headers={'Authorization': f'Bearer {token}'})
@@ -271,6 +240,13 @@ class IotApiTests(unittest.TestCase):
         self.assertTrue(any(
             sql.startswith('INSERT INTO irrigation_request')
             for sql, _ in request_connection.statements))
+        self.assertTrue(snapshot_connection.committed)
+        snapshot_insert = next(
+            params for sql, params in snapshot_connection.statements
+            if sql.startswith('INSERT INTO request_sensor_snapshots')
+        )
+        self.assertEqual(snapshot_insert[4], 'ESP32_ZONE_02')
+        self.assertEqual(snapshot_insert[5], 47.0)
 
     def test_water_request_does_not_report_success_without_database(self):
         user = {'id': 98765, 'role': 'farmer', 'password_hash': 'unused'}

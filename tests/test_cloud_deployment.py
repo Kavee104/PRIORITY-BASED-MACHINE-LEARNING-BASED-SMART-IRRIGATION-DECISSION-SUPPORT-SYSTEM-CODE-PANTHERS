@@ -80,10 +80,12 @@ class CloudDeploymentTests(unittest.TestCase):
         ))
         for table in (
             'ZONE', 'FARMER', 'FIELD_PROFILE', 'IRRIGATION_REQUEST',
-            'USERS', 'IOT_DEVICES', 'SENSOR_READINGS',
-            'REQUEST_SENSOR_SNAPSHOTS',
+            'USERS', 'REQUEST_SENSOR_SNAPSHOTS',
         ):
             self.assertIn(f'CREATE TABLE IF NOT EXISTS {table}', normalized)
+        self.assertNotIn('CREATE TABLE IF NOT EXISTS IOT_DEVICES', normalized)
+        self.assertNotIn('CREATE TABLE IF NOT EXISTS SENSOR_READINGS', normalized)
+        self.assertIn('DEVICE_ID VARCHAR(80) NOT NULL', normalized)
 
     def test_railway_starts_migration_before_gunicorn(self):
         config = Path('railway.toml').read_text(encoding='utf-8')

@@ -34,6 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<dynamic> fields = [];
   List<dynamic> requests = [];
   bool isLoading = true;
+  bool _dataFetchInProgress = false;
   String _selectedNavItem = 'Dashboard';
 
   // Profile & Settings Controllers
@@ -117,13 +118,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       if (mounted) {
         setState(() {
-          liveMoisture = null;
-          liveTemperature = null;
-          sensorZoneNo = null;
-          sensorDeviceId = null;
-          sensorRecordedAt = null;
-          sensorConnected = false;
-          sensorStatus = 'IoT telemetry temporarily unavailable';
+          sensorStatus = liveMoisture == null && liveTemperature == null
+              ? 'IoT telemetry temporarily unavailable'
+              : 'IoT telemetry temporarily unavailable â€¢ Showing last reading';
         });
       }
     } finally {
@@ -213,26 +210,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> loadData() async {
-    setState(() {
-      isLoading = true;
-    });
+    if (_dataFetchInProgress) return;
+    _dataFetchInProgress = true;
 
-    List<dynamic> remoteFields = [];
-    List<dynamic> remoteReqs = [];
+    List<dynamic>? remoteFields;
+    List<dynamic>? remoteReqs;
+    final authToken = AuthService.instance.sessionToken;
+    final headers = {
+      if (authToken != null && authToken.isNotEmpty)
+        'Authorization': 'Bearer $authToken',
+    };
+
     try {
       final fieldsResponse = await http
-          .get(Uri.parse("$baseUrl/fields/${widget.farmerId}"))
-          .timeout(const Duration(seconds: 3));
-      final fieldsData = jsonDecode(fieldsResponse.body);
-      remoteFields = fieldsData['fields'] ?? [];
+          .get(
+            Uri.parse("$baseUrl/fields/${widget.farmerId}"),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 20));
+      if (fieldsResponse.statusCode == 200) {
+        final fieldsData = jsonDecode(fieldsResponse.body);
+        remoteFields = List<dynamic>.from(fieldsData['fields'] ?? const []);
+      }
+    } catch (_) {
+      // Preserve the currently displayed fields during a temporary failure.
+    }
 
+    try {
       final requestsResponse = await http
-          .get(Uri.parse("$baseUrl/my-requests/${widget.farmerId}"))
-          .timeout(const Duration(seconds: 3));
-      final requestsData = jsonDecode(requestsResponse.body);
-      remoteReqs = requestsData['requests'] ?? [];
-    } catch (e) {
-      // Backend unreachable or offline
+          .get(
+            Uri.parse("$baseUrl/my-requests/${widget.farmerId}"),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 20));
+      if (requestsResponse.statusCode == 200) {
+        final requestsData = jsonDecode(requestsResponse.body);
+        remoteReqs = List<dynamic>.from(requestsData['requests'] ?? const []);
+      }
+    } catch (_) {
+      // Preserve the currently displayed requests during a temporary failure.
     }
 
     // Merge remote fields and local AuthService fields cleanly
@@ -245,7 +261,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         fieldMap[fid] = f;
       }
     }
-    for (var f in remoteFields) {
+    for (var f in remoteFields ?? fields) {
       final fid = int.tryParse("${f['FieldID']}");
       if (fid != null) {
         fieldMap[fid] = f;
@@ -264,7 +280,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         combinedMap[rid] = r;
       }
     }
-    for (var r in remoteReqs) {
+    for (var r in remoteReqs ?? requests) {
       final rid = int.tryParse("${r['RequestID']}");
       if (rid != null) {
         combinedMap[rid] = r;
@@ -283,6 +299,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       });
     }
+    _dataFetchInProgress = false;
+  }
+
+  Future<void> _refreshDashboard() async {
+    await Future.wait([loadData(), fetchSensorData()]);
   }
 
   Future<void> requestWater(int fieldId) async {
@@ -964,7 +985,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return RefreshIndicator(
       color: AppColors.primaryGreen,
-      onRefresh: loadData,
+      onRefresh: _refreshDashboard,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         physics: const AlwaysScrollableScrollPhysics(),

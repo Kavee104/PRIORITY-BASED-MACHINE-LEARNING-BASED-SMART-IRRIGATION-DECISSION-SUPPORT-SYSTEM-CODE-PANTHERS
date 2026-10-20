@@ -382,6 +382,42 @@ def _current_farmer_id():
 
 
 def _send_reset_otp_email(recipient, otp):
+  # Railway trial/free environments can block outbound SMTP ports. Brevo's
+  # HTTPS API avoids that restriction while keeping SMTP as a local fallback.
+  brevo_api_key = os.environ.get('BREVO_API_KEY', '').strip()
+  brevo_sender_email = os.environ.get(
+    'BREVO_SENDER_EMAIL', os.environ.get('SMTP_FROM', '')).strip()
+  brevo_sender_name = os.environ.get(
+    'BREVO_SENDER_NAME', 'Smart Irrigation').strip()
+
+  if brevo_api_key:
+    if not brevo_sender_email:
+      return False
+
+    response = requests.post(
+      'https://api.brevo.com/v3/smtp/email',
+      headers={
+        'accept': 'application/json',
+        'api-key': brevo_api_key,
+        'content-type': 'application/json',
+      },
+      json={
+        'sender': {
+          'name': brevo_sender_name,
+          'email': brevo_sender_email,
+        },
+        'to': [{'email': recipient}],
+        'subject': 'Smart Irrigation Password Reset OTP',
+        'textContent': (
+          f'Your Smart Irrigation password reset OTP is {otp}. '
+          'This code expires in 10 minutes.'
+        ),
+      },
+      timeout=20,
+    )
+    response.raise_for_status()
+    return True
+
   smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
   smtp_port = int(os.environ.get('SMTP_PORT', '587'))
   smtp_user = os.environ.get('SMTP_USER', '')

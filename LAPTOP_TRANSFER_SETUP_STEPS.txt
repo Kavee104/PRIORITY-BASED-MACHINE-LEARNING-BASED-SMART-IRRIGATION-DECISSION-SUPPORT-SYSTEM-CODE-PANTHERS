@@ -129,6 +129,14 @@ $env:OPENWEATHER_API_KEY = 'YOUR_WEATHER_KEY'
 
 If password-reset email is used, also restore:
 
+For Railway, prefer Brevo's HTTPS email API because SMTP ports may be blocked:
+
+$env:BREVO_API_KEY = 'YOUR_BREVO_API_KEY'
+$env:BREVO_SENDER_EMAIL = 'YOUR_VERIFIED_BREVO_SENDER_EMAIL'
+$env:BREVO_SENDER_NAME = 'Smart Irrigation'
+
+Or, where outbound SMTP is available:
+
 $env:SMTP_HOST = 'YOUR_SMTP_HOST'
 $env:SMTP_PORT = 'YOUR_SMTP_PORT'
 $env:SMTP_USER = 'YOUR_SMTP_USER'

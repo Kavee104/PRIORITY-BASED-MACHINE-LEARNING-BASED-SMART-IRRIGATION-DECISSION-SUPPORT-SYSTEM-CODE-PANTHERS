@@ -122,6 +122,30 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
       errorMessage = null;
     });
 
+    // Railway MySQL is the authoritative schedule source. Local requests are
+    // used only when the cloud is genuinely unreachable.
+    try {
+      final cloudResponse = await http
+          .get(Uri.parse("$baseUrl/priority-schedule"))
+          .timeout(const Duration(seconds: 20));
+      if (!mounted) return;
+      if (cloudResponse.statusCode == 200) {
+        final cloudData = jsonDecode(cloudResponse.body);
+        setState(() {
+          schedule = cloudData['schedule'] ?? [];
+          releaseStatus = cloudData['release_status'] ?? 'Low';
+          allocationPolicy = cloudData['allocation_policy'] ?? 'PRIORITY_BASED';
+          policyDescription =
+              cloudData['policy_description'] ??
+              'Low Water Supply Policy Active.';
+          isLoading = false;
+        });
+        return;
+      }
+    } catch (_) {
+      // Continue to the local offline fallback below.
+    }
+
     // Always prefer live incoming farmer requests from AuthService if present
     final liveZoneSchedule = AuthService.instance.getZonePrioritySchedule();
     if (liveZoneSchedule.isNotEmpty) {

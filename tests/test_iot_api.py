@@ -339,7 +339,7 @@ class IotApiTests(unittest.TestCase):
         self.assertEqual(request_rows[0]['SoilTemperature'], 33.6)
         self.assertEqual(request_rows[0]['DeviceID'], 'ESP32_ZONE_01')
 
-    def test_priority_schedule_adds_varied_demo_zones(self):
+    def test_priority_schedule_uses_real_request_zones_only(self):
         real_request = {
             'RequestID': 15,
             'farmer_id': 6,
@@ -358,12 +358,7 @@ class IotApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         schedule = response.json['schedule']
         names = {item['ZoneName'] for item in schedule}
-        self.assertTrue({'Zone 1', 'Zone 2', 'Zone 3', 'Zone 4'} <= names)
-        demo_moistures = {
-            item['AvgSoilMoisture'] for item in schedule
-            if item['ZoneName'] in {'Zone 2', 'Zone 3', 'Zone 4'}
-        }
-        self.assertEqual(len(demo_moistures), 3)
+        self.assertEqual(names, {'Zone 1'})
 
     def test_password_otp_is_never_exposed_when_email_is_not_configured(self):
         user = {

@@ -1544,6 +1544,66 @@ def calculate_target_water_req(soil_moisture, temperature=29.5,
 
 @app.route('/priority-schedule', methods=['GET'])
 def get_priority_schedule():
+  # Build every refresh from Railway MySQL. The bundled JSON list is only an
+  # offline-development fallback and must never replace production requests.
+  schedule_requests = []
+  db_read_succeeded = False
+  conn = get_db_connection()
+  if conn:
+    cursor = None
+    try:
+      cursor = conn.cursor(dictionary=True)
+      cursor.execute(
+        "SELECT ir.RequestID, ir.FarmerID, ir.FieldID, ir.RequestTime, "
+        "ir.Status, fp.ZoneNo, fp.Size, s.moisture, s.temperature, "
+        "s.recorded_at, s.device_id "
+        "FROM irrigation_request ir "
+        "JOIN field_profile fp ON fp.FieldID = ir.FieldID "
+        "LEFT JOIN request_sensor_snapshots s "
+        "ON s.RequestID = ir.RequestID AND s.FarmerID = ir.FarmerID "
+        "AND s.FieldID = ir.FieldID "
+        "ORDER BY ir.RequestID DESC"
+      )
+      for row in cursor.fetchall():
+        schedule_requests.append({
+          'RequestID': row['RequestID'],
+          'farmer_id': row['FarmerID'],
+          'FieldID': row['FieldID'],
+          'ZoneName': f"Zone {row['ZoneNo']}",
+          'ZoneNo': row['ZoneNo'],
+          'AreaAcres': float(row['Size']) if row.get('Size') is not None else 2.5,
+          'Status': row['Status'],
+          'RequestTime': _format_utc_as_local(row['RequestTime']),
+          'SoilMoisture': (
+            float(row['moisture']) if row.get('moisture') is not None else None
+          ),
+          'SoilTemperature': (
+            float(row['temperature']) if row.get('temperature') is not None else None
+          ),
+        })
+      db_read_succeeded = True
+    except Exception as e:
+      print('Priority schedule MySQL read error:', e)
+    finally:
+      if cursor is not None:
+        cursor.close()
+      conn.close()
+
+  if not db_read_succeeded:
+    schedule_requests = [dict(item) for item in water_requests]
+
+  live_sensors = _supabase_latest_sensors()
+  for item in schedule_requests:
+    if item.get('SoilMoisture') is not None:
+      continue
+    try:
+      live = live_sensors.get((int(item['farmer_id']), int(item['ZoneNo'])))
+    except (KeyError, TypeError, ValueError):
+      live = None
+    if live:
+      item['SoilMoisture'] = live['SoilMoisture']
+      item['SoilTemperature'] = live['SoilTemperature']
+
   forecast_rain = get_weather_forecast()
   previous_day_rainfall = get_previous_day_rainfall()
   reservoir_water_level = 14.5
@@ -1572,7 +1632,7 @@ def get_priority_schedule():
     return raw_str or 'Zone 1'
 
   last_irrigation_by_field = {}
-  for historical_request in water_requests:
+  for historical_request in schedule_requests:
     if str(historical_request.get('Status', '')).lower() != 'approved':
       continue
     try:
@@ -1590,7 +1650,9 @@ def get_priority_schedule():
       continue
 
   zone_groups = {}
-  for req in water_requests:
+  for req in schedule_requests:
+    if str(req.get('Status', '')).lower() != 'pending':
+      continue
     z_name = _clean_zone(req.get('ZoneName'))
     if z_name not in zone_groups:
       zone_groups[z_name] = {
@@ -1672,98 +1734,6 @@ def get_priority_schedule():
           'RoundRobinStatus': 'Active Rotation',
       })
 
-    # Demo zones keep the priority screen populated for presentations while
-    # preserving any real zones built from farmer requests above.
-    demo_zones = [
-        {
-            'ZoneID': 'DEMO_Z_2',
-            'ZoneName': 'Zone 2',
-            'ZoneWeight': 1.3,
-            'TotalFields': 2,
-            'TotalAreaAcres': 8.0,
-            'FieldMoistureReadings': [24.0, 29.0],
-            'FieldTempReadings': [34.2, 33.5],
-            'DaysSinceLastIrrigation': [9.0, 8.0],
-            'RoundRobinStatus': 'Demo - High Priority',
-        },
-        {
-            'ZoneID': 'DEMO_Z_3',
-            'ZoneName': 'Zone 3',
-            'ZoneWeight': 1.1,
-            'TotalFields': 3,
-            'TotalAreaAcres': 15.0,
-            'FieldMoistureReadings': [48.0, 52.0, 55.0],
-            'FieldTempReadings': [29.0, 30.0, 28.5],
-            'DaysSinceLastIrrigation': [5.0, 4.0, 6.0],
-            'RoundRobinStatus': 'Demo - Medium Priority',
-        },
-        {
-            'ZoneID': 'DEMO_Z_4',
-            'ZoneName': 'Zone 4',
-            'ZoneWeight': 1.0,
-            'TotalFields': 2,
-            'TotalAreaAcres': 6.0,
-            'FieldMoistureReadings': [70.0, 74.0],
-            'FieldTempReadings': [26.2, 27.0],
-            'DaysSinceLastIrrigation': [2.0, 3.0],
-            'RoundRobinStatus': 'Demo - Low Priority',
-        },
-    ]
-    existing_zone_names = {
-      _clean_zone(zone['ZoneName']).lower() for zone in zones_sensor_data
-    }
-    zones_sensor_data.extend(
-      zone for zone in demo_zones
-      if _clean_zone(zone['ZoneName']).lower() not in existing_zone_names
-    )
-
-  if not zones_sensor_data:
-    zones_sensor_data = [
-        {
-            'ZoneID': 'Z_101',
-            'ZoneName': 'Zone 3 (Field #15)',
-            'ZoneWeight': 1.5,
-            'TotalFields': 1,
-            'TotalAreaAcres': 2.5,
-            'FieldMoistureReadings': [28.0],
-            'FieldTempReadings': [28.0],
-            'DaysSinceLastIrrigation': [10.0],
-            'RoundRobinStatus': 'Active (Rotation 1)',
-        },
-        {
-            'ZoneID': 'Z_102',
-            'ZoneName': 'Zone 28 (Field #14, #103)',
-            'ZoneWeight': 1.4,
-            'TotalFields': 3,
-            'TotalAreaAcres': 7.5,
-            'FieldMoistureReadings': [45.0, 46.0, 34.0],
-            'FieldTempReadings': [28.7, 30.8, 30.1],
-            'DaysSinceLastIrrigation': [8.0, 7.0, 10.0],
-            'RoundRobinStatus': 'Queued (Rotation 2)',
-        },
-        {
-            'ZoneID': 'Z_103',
-            'ZoneName': 'Zone 5 (Field #101)',
-            'ZoneWeight': 1.1,
-            'TotalFields': 1,
-            'TotalAreaAcres': 2.5,
-            'FieldMoistureReadings': [35.0],
-            'FieldTempReadings': [28.7],
-            'DaysSinceLastIrrigation': [9.0],
-            'RoundRobinStatus': 'Queued (Rotation 3)',
-        },
-        {
-            'ZoneID': 'Z_104',
-            'ZoneName': 'Zone 9 (Field #102)',
-            'ZoneWeight': 1.2,
-            'TotalFields': 1,
-            'TotalAreaAcres': 2.5,
-            'FieldMoistureReadings': [52.0],
-            'FieldTempReadings': [29.4],
-            'DaysSinceLastIrrigation': [6.0],
-            'RoundRobinStatus': 'Queued (Rotation 4)',
-        },
-    ]
 
   schedule = []
   for z in zones_sensor_data:

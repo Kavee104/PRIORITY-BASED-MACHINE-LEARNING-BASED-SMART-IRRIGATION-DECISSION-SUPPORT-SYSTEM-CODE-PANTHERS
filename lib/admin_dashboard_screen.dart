@@ -330,30 +330,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   List<Map<String, dynamic>> _getCombinedUsers() {
     final userMap = <String, Map<String, dynamic>>{};
 
-    // 1. Add local AuthService accounts
-    final accounts = AuthService.instance.getAllAccounts();
-    for (var a in accounts) {
-      final key = a.username.trim().toLowerCase();
-      userMap[key] = {
-        'username': a.username,
-        'email': a.email,
-        'name': a.name,
-        'role': a.roleString,
-      };
-    }
-
-    // 2. Add remote API users
-    for (var u in _apiUsers) {
-      final uname = (u['username'] ?? u['email'] ?? '').toString().trim();
-      if (uname.isNotEmpty) {
-        final key = uname.toLowerCase();
+    // Cloud accounts are authoritative. Local demo accounts are only a
+    // fallback while the backend is unavailable.
+    if (_apiUsers.isNotEmpty) {
+      for (var u in _apiUsers) {
+        final uname = (u['username'] ?? u['email'] ?? '').toString().trim();
+        if (uname.isEmpty) continue;
+        final id = u['id']?.toString().trim();
+        final email = u['email']?.toString().trim().toLowerCase();
+        final key = id != null && id.isNotEmpty
+            ? '${u['role'] ?? 'farmer'}:$id'
+            : (email?.isNotEmpty == true ? email! : uname.toLowerCase());
         userMap[key] = {
+          'id': u['id'],
           'username': uname,
-          'email': u['email'] ?? userMap[key]?['email'] ?? '$key@example.com',
-          'name': u['name'] ?? userMap[key]?['name'] ?? uname,
-          'role': (u['role'] ?? userMap[key]?['role'] ?? 'farmer').toString(),
+          'email': u['email'] ?? '',
+          'name': u['name'] ?? uname,
+          'role': (u['role'] ?? 'farmer').toString(),
         };
       }
+      return userMap.values.toList();
+    }
+
+    for (var account in AuthService.instance.getAllAccounts()) {
+      final key = '${account.roleString}:${account.id}';
+      userMap[key] = {
+        'id': account.id,
+        'username': account.username,
+        'email': account.email,
+        'name': account.name,
+        'role': account.roleString,
+      };
     }
 
     return userMap.values.toList();

@@ -382,6 +382,29 @@ def _farmer_display_name(farmer_id, database_name=None):
   return database_name or fallback_label
 
 
+def _unique_user_accounts():
+  """Collapse username/email aliases into one record per real account."""
+  unique = {}
+  for login_name, account in users.items():
+    role = str(account.get('role') or 'farmer').lower()
+    account_id = account.get('id')
+    email = str(account.get('email') or '').strip().lower()
+    identity = (role, account_id, email or login_name.strip().lower())
+    candidate = {
+      'id': account_id,
+      'username': login_name,
+      'email': email or None,
+      'name': str(account.get('name') or '').strip() or login_name,
+      'role': role,
+    }
+    existing = unique.get(identity)
+    if existing is None or (
+      '@' in str(existing.get('username') or '') and '@' not in login_name
+    ):
+      unique[identity] = candidate
+  return list(unique.values())
+
+
 def _session_token(username, user):
   canonical_username = next((key for key, record in users.items() if record is user), username)
   return session_signer.dumps({
@@ -1354,8 +1377,10 @@ def change_password():
 def admin_list_users():
   if not _admin_key_valid(request):
     return jsonify({'status': 'error', 'message': 'admin key required'}), 401
-  safe = [{ 'username': u, 'role': users[u]['role'], 'id': users[u].get('id', 101) } for u in users]
-  return jsonify({'status': 'success', 'users': safe}), 200
+  return jsonify({
+    'status': 'success',
+    'users': _unique_user_accounts(),
+  }), 200
 
 
 @app.route('/auth/login', methods=['POST'])
@@ -2343,14 +2368,15 @@ def admin_stats():
     req_map[r['RequestID']] = r
 
   all_reqs = list(req_map.values())
-  total_users = len(users)
+  unique_users = _unique_user_accounts()
+  total_users = len(unique_users)
   total_requests = len(all_reqs)
   pending = sum(1 for r in all_reqs if r.get('Status') == 'Pending')
   approved = sum(1 for r in all_reqs if r.get('Status') == 'Approved')
   rejected = sum(1 for r in all_reqs if r.get('Status') == 'Rejected')
-  farmers = sum(1 for u in users.values() if u.get('role') == 'farmer')
-  officers = sum(1 for u in users.values() if u.get('role') == 'officer')
-  admins = sum(1 for u in users.values() if u.get('role') == 'admin')
+  farmers = sum(1 for u in unique_users if u.get('role') == 'farmer')
+  officers = sum(1 for u in unique_users if u.get('role') == 'officer')
+  admins = sum(1 for u in unique_users if u.get('role') == 'admin')
 
   return jsonify({
     'status': 'success',

@@ -90,6 +90,16 @@ def _migrate_supabase_snapshot_storage(cursor):
     cursor.execute("DROP TABLE IF EXISTS iot_devices")
 
 
+def _migrate_rejection_reason(cursor):
+    if (_table_exists(cursor, 'irrigation_request') and
+            not _column_exists(cursor, 'irrigation_request',
+                               'RejectionReason')):
+        cursor.execute(
+            "ALTER TABLE irrigation_request "
+            "ADD COLUMN RejectionReason VARCHAR(500) NULL AFTER Status"
+        )
+
+
 def main():
     schema_path = Path(__file__).with_name('cloud_schema.sql')
     connection = mysql.connector.connect(**MYSQL_CONFIG)
@@ -98,6 +108,7 @@ def main():
         for statement in _statements(schema_path.read_text(encoding='utf-8')):
             cursor.execute(statement)
         _migrate_supabase_snapshot_storage(cursor)
+        _migrate_rejection_reason(cursor)
         connection.commit()
         print('Cloud database schema is ready.')
     except Exception:

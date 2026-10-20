@@ -47,6 +47,7 @@ class WaterRequest {
   final double areaAcres;
   final double previousDayRainfall;
   DateTime? approvedAt;
+  String? rejectionReason;
 
   WaterRequest({
     required this.requestID,
@@ -60,6 +61,7 @@ class WaterRequest {
     this.soilTemperature,
     this.areaAcres = 2.5,
     this.previousDayRainfall = 0.0,
+    this.rejectionReason,
   });
 
   Map<String, dynamic> toJson() => {
@@ -75,6 +77,7 @@ class WaterRequest {
     'AreaAcres': areaAcres,
     'PreviousDayRainfall': previousDayRainfall,
     'ApprovedAt': approvedAt?.toIso8601String(),
+    if (rejectionReason != null) 'RejectionReason': rejectionReason,
   };
 }
 
@@ -251,14 +254,15 @@ class AuthService {
     return false;
   }
 
-  bool rejectRequest(int requestId) {
+  bool rejectRequest(int requestId, String reason) {
     for (var r in _waterRequests) {
       if (r.requestID == requestId) {
         r.status = 'Rejected';
+        r.rejectionReason = reason;
         addAuditLog(
           action: 'REQUEST_REJECTED',
           user: 'admin',
-          details: 'Rejected water request #$requestId for ${r.zoneName}',
+          details: 'Rejected water request #$requestId: $reason',
         );
       }
     }

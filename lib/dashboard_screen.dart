@@ -1497,6 +1497,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
+                    dataRowMinHeight: 56,
+                    dataRowMaxHeight: 84,
                     headingRowColor: WidgetStateProperty.all(
                       AppColors.inputBackground,
                     ),
@@ -1533,6 +1535,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final status = (r['Status'] ?? 'Pending') as String;
                       final isApproved = status == 'Approved';
                       final isRejected = status == 'Rejected';
+                      final rejectionReason = (r['RejectionReason'] ?? '')
+                          .toString()
+                          .trim();
 
                       Color sColor = AppColors.primaryGreen;
                       Color sBg = AppColors.lightGreen;
@@ -1563,23 +1568,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           DataCell(Text("${r['RequestTime']}")),
                           DataCell(
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: sBg,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                context.tr(status),
-                                style: TextStyle(
-                                  color: sColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: sBg,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    context.tr(status),
+                                    style: TextStyle(
+                                      color: sColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                if (isRejected && rejectionReason.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: SizedBox(
+                                      width: 180,
+                                      child: Text(
+                                        'Reason: $rejectionReason',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: AppColors.danger,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ],

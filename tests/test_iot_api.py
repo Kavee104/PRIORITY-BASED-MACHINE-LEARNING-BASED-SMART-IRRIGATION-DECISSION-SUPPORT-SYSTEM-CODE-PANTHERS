@@ -147,6 +147,44 @@ class IotApiTests(unittest.TestCase):
         self.assertEqual(admin_response.status_code, 200)
         self.assertEqual(farmer_response.status_code, 401)
 
+    def test_admin_rejection_requires_and_saves_reason(self):
+        request_row = {
+            'RequestID': 42,
+            'farmer_id': 6,
+            'FieldID': 9,
+            'ZoneName': 'Zone 1 (Field #9)',
+            'Status': 'Pending',
+        }
+        connection = FakeConnection()
+        headers = {'X-Admin-Key': backend.ADMIN_KEY}
+        with patch.object(backend, 'water_requests', [request_row]), \
+             patch.object(backend, 'get_db_connection',
+                          return_value=connection), \
+             patch.object(backend, '_write_requests_file'):
+            missing = self.client.post(
+                '/admin/water-requests/42/reject', json={}, headers=headers)
+            response = self.client.post(
+                '/admin/water-requests/42/reject',
+                json={'reason': 'Reservoir water level is too low.'},
+                headers=headers,
+            )
+
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(request_row['Status'], 'Rejected')
+        self.assertEqual(
+            request_row['RejectionReason'],
+            'Reservoir water level is too low.',
+        )
+        update_params = next(
+            params for sql, params in connection.statements
+            if sql.startswith("UPDATE irrigation_request SET Status = 'Rejected'")
+        )
+        self.assertEqual(
+            update_params,
+            ('Reservoir water level is too low.', 42),
+        )
+
     def test_builtin_admin_login_uses_railway_admin_password(self):
         stale_admin = {
             'id': 1,

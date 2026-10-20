@@ -461,17 +461,87 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  Future<void> _rejectRequest(int requestId) async {
+  Future<void> _showRejectDialog(int requestId) async {
+    final controller = TextEditingController();
+    String? validationError;
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Text('Reject Request #$requestId'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 500,
+            minLines: 3,
+            maxLines: 5,
+            decoration: InputDecoration(
+              labelText: 'Rejection reason',
+              hintText: 'Explain why this request cannot be approved',
+              errorText: validationError,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+              ),
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isEmpty) {
+                  setDialogState(
+                    () => validationError = 'Please enter a rejection reason.',
+                  );
+                  return;
+                }
+                Navigator.of(dialogContext).pop(value);
+              },
+              icon: const Icon(Icons.cancel_rounded, size: 18),
+              label: const Text('Reject Request'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (reason != null && mounted) {
+      await _rejectRequest(requestId, reason);
+    }
+  }
+
+  Future<void> _rejectRequest(int requestId, String reason) async {
     setState(() => _actionInProgressId = requestId);
-    AuthService.instance.rejectRequest(requestId);
     try {
-      await http
+      final response = await http
           .post(
             Uri.parse('$baseUrl/admin/water-requests/$requestId/reject'),
-            headers: _adminHeaders,
+            headers: {..._adminHeaders, 'Content-Type': 'application/json'},
+            body: jsonEncode({'reason': reason}),
           )
           .timeout(const Duration(seconds: 20));
-    } catch (_) {}
+      if (response.statusCode != 200) {
+        final body = jsonDecode(response.body);
+        throw Exception(body['message'] ?? 'Request could not be rejected.');
+      }
+      AuthService.instance.rejectRequest(requestId, reason);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _actionInProgressId = null);
+        _showMessage(
+          error.toString().replaceFirst('Exception: ', ''),
+          AppColors.danger,
+        );
+      }
+      return;
+    }
 
     await _loadAllData();
     if (mounted) {
@@ -1547,7 +1617,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                         size: 22,
                                       ),
                                       tooltip: context.tr('Reject'),
-                                      onPressed: () => _rejectRequest(reqId),
+                                      onPressed: () => _showRejectDialog(reqId),
                                     ),
                                   ],
                                 )

@@ -2112,7 +2112,7 @@ def get_my_requests(farmer_id):
     try:
       cursor = conn.cursor(dictionary=True)
       cursor.execute(
-        "SELECT ir.RequestID, ir.FarmerID, ir.FieldID, ir.RequestTime, ir.Status, fp.ZoneNo "
+        "SELECT ir.RequestID, ir.FarmerID, ir.FieldID, ir.RequestTime, ir.Status, ir.RejectionReason, fp.ZoneNo "
         "FROM irrigation_request ir LEFT JOIN field_profile fp ON ir.FieldID = fp.FieldID "
         "WHERE ir.FarmerID = %s ORDER BY ir.RequestID DESC",
         (farmer_id,)
@@ -2127,6 +2127,7 @@ def get_my_requests(farmer_id):
           'FieldID': r['FieldID'],
           'ZoneName': f"Zone {r.get('ZoneNo', '?')}",
           'Status': r['Status'],
+          'RejectionReason': r.get('RejectionReason'),
           'RequestTime': req_time_str,
           'farmer_name': _farmer_display_name(r['FarmerID'])
         })
@@ -2199,7 +2200,7 @@ def admin_get_water_requests():
     try:
       cursor = conn.cursor(dictionary=True)
       cursor.execute(
-        "SELECT ir.RequestID, ir.FarmerID, ir.FieldID, ir.RequestTime, ir.Status, f.F_Name, f.L_Name, fp.ZoneNo, fp.Size "
+        "SELECT ir.RequestID, ir.FarmerID, ir.FieldID, ir.RequestTime, ir.Status, ir.RejectionReason, f.F_Name, f.L_Name, fp.ZoneNo, fp.Size "
         "FROM irrigation_request ir "
         "LEFT JOIN farmer f ON ir.FarmerID = f.FarmerID "
         "LEFT JOIN field_profile fp ON ir.FieldID = fp.FieldID "
@@ -2219,6 +2220,7 @@ def admin_get_water_requests():
           'FieldID': r['FieldID'],
           'ZoneName': f"Zone {r.get('ZoneNo', '?')} (Field #{r['FieldID']})",
           'Status': r['Status'],
+          'RejectionReason': r.get('RejectionReason'),
           'RequestTime': req_time_str,
           'farmer_name': farmer_name,
           'AreaAcres': float(r['Size']) if r.get('Size') is not None else 2.5,
@@ -2273,7 +2275,11 @@ def admin_approve_request(req_id):
   if conn:
     try:
       cursor = conn.cursor()
-      cursor.execute("UPDATE irrigation_request SET Status = 'Approved' WHERE RequestID = %s", (req_id,))
+      cursor.execute(
+        "UPDATE irrigation_request SET Status = 'Approved', "
+        "RejectionReason = NULL WHERE RequestID = %s",
+        (req_id,),
+      )
       cursor.close()
       conn.close()
     except Exception as e:
@@ -2293,11 +2299,28 @@ def admin_reject_request(req_id):
   if not _admin_key_valid(request):
     return jsonify({'status': 'error', 'message': 'admin key required'}), 401
 
+  data = request.get_json(silent=True) or {}
+  reason = str(data.get('reason') or '').strip()
+  if not reason:
+    return jsonify({
+      'status': 'error',
+      'message': 'A rejection reason is required.',
+    }), 400
+  if len(reason) > 500:
+    return jsonify({
+      'status': 'error',
+      'message': 'Rejection reason must be 500 characters or fewer.',
+    }), 400
+
   conn = get_db_connection()
   if conn:
     try:
       cursor = conn.cursor()
-      cursor.execute("UPDATE irrigation_request SET Status = 'Rejected' WHERE RequestID = %s", (req_id,))
+      cursor.execute(
+        "UPDATE irrigation_request SET Status = 'Rejected', "
+        "RejectionReason = %s WHERE RequestID = %s",
+        (reason, req_id),
+      )
       cursor.close()
       conn.close()
     except Exception as e:
@@ -2306,10 +2329,18 @@ def admin_reject_request(req_id):
   for r in water_requests:
     if r['RequestID'] == req_id:
       r['Status'] = 'Rejected'
-      _audit('REQUEST_REJECTED', 'admin', f'Rejected water request #{req_id} for {r["ZoneName"]}')
+      r['RejectionReason'] = reason
+      _audit('REQUEST_REJECTED', 'admin', f'Rejected water request #{req_id}: {reason}')
       _write_requests_file(water_requests)
       return jsonify({'status': 'success', 'request': r}), 200
-  return jsonify({'status': 'success'}), 200
+  return jsonify({
+    'status': 'success',
+    'request': {
+      'RequestID': req_id,
+      'Status': 'Rejected',
+      'RejectionReason': reason,
+    },
+  }), 200
 
 
 @app.route('/admin/clear-requests', methods=['POST'])

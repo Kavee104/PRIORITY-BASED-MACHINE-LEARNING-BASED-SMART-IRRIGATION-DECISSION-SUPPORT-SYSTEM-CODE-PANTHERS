@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS irrigation_request (
   FieldID INT NOT NULL,
   RequestTime DATETIME NOT NULL,
   Status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+  RejectionReason VARCHAR(500) NULL,
   PRIMARY KEY (RequestID),
   INDEX idx_request_farmer (FarmerID),
   INDEX idx_request_field (FieldID),

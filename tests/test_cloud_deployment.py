@@ -86,6 +86,7 @@ class CloudDeploymentTests(unittest.TestCase):
         self.assertNotIn('CREATE TABLE IF NOT EXISTS IOT_DEVICES', normalized)
         self.assertNotIn('CREATE TABLE IF NOT EXISTS SENSOR_READINGS', normalized)
         self.assertIn('DEVICE_ID VARCHAR(80) NOT NULL', normalized)
+        self.assertIn('REJECTIONREASON VARCHAR(500) NULL', normalized)
 
     def test_railway_starts_migration_before_gunicorn(self):
         config = Path('railway.toml').read_text(encoding='utf-8')

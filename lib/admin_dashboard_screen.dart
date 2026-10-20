@@ -461,8 +461,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  Future<void> _showRejectDialog(int requestId) async {
-    final controller = TextEditingController();
+  String _automaticRejectionReason(dynamic request) {
+    final liveSensor = _liveSensorForRequest(request);
+    final moistureValue =
+        request['SoilMoisture'] ??
+        request['soil_moisture'] ??
+        liveSensor?['moisture'];
+    final rainfallValue = request['PreviousDayRainfall'];
+    final moisture = moistureValue is num ? moistureValue.toDouble() : null;
+    final rainfall = rainfallValue is num ? rainfallValue.toDouble() : 0.0;
+
+    if (moisture == null) {
+      return 'Rejected because no valid soil-moisture sensor reading is available for this field.';
+    }
+    if (moisture >= 70) {
+      return 'Rejected because the current soil moisture is already sufficient (${moisture.toStringAsFixed(1)}%).';
+    }
+    if (rainfall >= 10) {
+      return 'Rejected because recent rainfall (${rainfall.toStringAsFixed(1)} mm) provides sufficient water for this field.';
+    }
+    if (moisture >= 50) {
+      return 'Rejected because the field is not currently dry enough to require priority irrigation (${moisture.toStringAsFixed(1)}% moisture).';
+    }
+    return 'Rejected because this request does not meet the current irrigation priority and available-water requirements.';
+  }
+
+  Future<void> _showRejectDialog(dynamic request) async {
+    final requestId = _intValue(request['RequestID']);
+    if (requestId == null) return;
+    final controller = TextEditingController(
+      text: _automaticRejectionReason(request),
+    );
     String? validationError;
     final reason = await showDialog<String>(
       context: context,
@@ -1617,7 +1646,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                         size: 22,
                                       ),
                                       tooltip: context.tr('Reject'),
-                                      onPressed: () => _showRejectDialog(reqId),
+                                      onPressed: () => _showRejectDialog(r),
                                     ),
                                   ],
                                 )

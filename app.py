@@ -1514,21 +1514,22 @@ def reset_password_officer():
 
 
 def calculate_urgency_score(soil_moisture, temperature=29.5,
-                            days_since_last_irrigation=10.0):
-  """Urgency = 100 * (0.5Si + 0.3Ti + 0.2Di), clamped to 0..100."""
+                            days_since_last_irrigation=None):
+  """Calculate urgency from real values only; reweight when history is unknown."""
   soil_factor = (85.0 - float(soil_moisture)) / (85.0 - 40.0)
   temperature_factor = (float(temperature) - 25.0) / (30.0 - 25.0)
-  irrigation_interval_factor = float(days_since_last_irrigation) / 10.0
-
   soil_factor = min(1.0, max(0.0, soil_factor))
   temperature_factor = min(1.0, max(0.0, temperature_factor))
-  irrigation_interval_factor = min(1.0, max(0.0, irrigation_interval_factor))
+  weighted_total = (0.5 * soil_factor) + (0.3 * temperature_factor)
+  active_weight = 0.8
+  if days_since_last_irrigation is not None:
+    irrigation_interval_factor = min(
+      1.0, max(0.0, float(days_since_last_irrigation) / 10.0)
+    )
+    weighted_total += 0.2 * irrigation_interval_factor
+    active_weight += 0.2
 
-  score = 100.0 * (
-    (0.5 * soil_factor)
-    + (0.3 * temperature_factor)
-    + (0.2 * irrigation_interval_factor)
-  )
+  score = 100.0 * weighted_total / active_weight
   return round(score, 2)
 def calculate_target_water_req(soil_moisture, temperature=29.5,
                                previous_day_rainfall=0.0, area_acres=1.0):
@@ -1571,7 +1572,7 @@ def get_priority_schedule():
           'FieldID': row['FieldID'],
           'ZoneName': f"Zone {row['ZoneNo']}",
           'ZoneNo': row['ZoneNo'],
-          'AreaAcres': float(row['Size']) if row.get('Size') is not None else 2.5,
+          'AreaAcres': float(row['Size']) if row.get('Size') is not None else None,
           'Status': row['Status'],
           'RequestTime': _format_utc_as_local(row['RequestTime']),
           'SoilMoisture': (
@@ -1606,11 +1607,34 @@ def get_priority_schedule():
 
   forecast_rain = get_weather_forecast()
   previous_day_rainfall = get_previous_day_rainfall()
-  reservoir_water_level = 14.5
+  reservoir_water_level = None
+  predicted_release_val = None
+  release_data_source = None
+  try:
+    if realtime_fetcher is None or water_release_model is None:
+      raise RuntimeError('Real-time reservoir source or ML model is unavailable')
+    release_features, release_meta = (
+      realtime_fetcher.get_realtime_feature_payload('Mahakandarawa')
+    )
+    feature_columns = water_model_metadata.get('feature_columns', [
+      'Reservoir Water Level', 'Reservoir Capacity',
+      'Rainfall (Nachchaduwa)', 'prev_day_level', 'prev_day_release',
+      'rainfall_3day_sum', 'rainfall_7day_sum', 'level_change',
+    ])
+    release_input = pd.DataFrame([release_features])[feature_columns]
+    predicted_release_val = max(
+      0.0, float(round(water_release_model.predict(release_input)[0], 4))
+    )
+    reservoir_water_level = float(release_features['Reservoir Water Level'])
+    release_data_source = release_meta.get('source', 'realtime')
+  except Exception as e:
+    print('Priority schedule release prediction unavailable:', e)
 
-  # Dynamic prediction release status evaluation
-  predicted_release_val = 45.18
-  if predicted_release_val > 150.0:
+  if predicted_release_val is None:
+    release_status = 'Unavailable'
+    allocation_policy = 'WAITING_FOR_RESERVOIR_DATA'
+    policy_description = 'Waiting for real reservoir data before selecting an allocation policy.'
+  elif predicted_release_val > 150.0:
     release_status = 'High'
     allocation_policy = 'FULL_ALLOCATION'
     policy_description = 'High Water Supply (>150 Acft/Day): 🟢 Full Water Allocation to All Zones (Formula 2 Applied).'
@@ -1650,10 +1674,38 @@ def get_priority_schedule():
       continue
 
   zone_groups = {}
+  waiting_requests = []
   for req in schedule_requests:
     if str(req.get('Status', '')).lower() != 'pending':
       continue
     z_name = _clean_zone(req.get('ZoneName'))
+    moist = req.get('SoilMoisture')
+    if moist is None:
+      moist = req.get('soil_moisture')
+    temp = req.get('SoilTemperature')
+    if temp is None:
+      temp = req.get('soil_temperature')
+    area_acres = req.get('AreaAcres')
+    if area_acres is None:
+      area_acres = req.get('Size')
+
+    missing = []
+    if moist is None:
+      missing.append('soil moisture')
+    if temp is None:
+      missing.append('soil temperature')
+    if area_acres is None:
+      missing.append('field area')
+    if missing:
+      waiting_requests.append({
+        'RequestID': req.get('RequestID'),
+        'FieldID': req.get('FieldID'),
+        'ZoneName': z_name,
+        'Status': 'Waiting for sensor data',
+        'Reason': 'Missing real ' + ', '.join(missing) + ' data.',
+      })
+      continue
+
     if z_name not in zone_groups:
       zone_groups[z_name] = {
           'ZoneName': z_name,
@@ -1663,30 +1715,6 @@ def get_priority_schedule():
           'irrigation_intervals': [],
           'count': 0,
       }
-
-    moist = req.get('SoilMoisture') or req.get('soil_moisture')
-    if moist is None:
-      moist = ((req.get('RequestID', 1) * 17) % 35 + 18)
-
-    temp = req.get('SoilTemperature') or req.get('soil_temperature')
-    if temp is None:
-      temp = (28.0 + (req.get('RequestID', 1) % 5) * 0.7)
-
-    area_acres = req.get('AreaAcres') or req.get('Size')
-    if area_acres is None:
-      try:
-        request_farmer_id = int(req.get('farmer_id'))
-        request_field_id = int(req.get('FieldID'))
-        matching_field = next(
-          (
-            field for field in farmer_fields.get(request_farmer_id, [])
-            if int(field.get('FieldID', -1)) == request_field_id
-          ),
-          None,
-        )
-        area_acres = matching_field.get('Size', 2.5) if matching_field else 2.5
-      except (TypeError, ValueError):
-        area_acres = 2.5
 
     days_since_last_irrigation = req.get('DaysSinceLastIrrigation')
     if days_since_last_irrigation is None:
@@ -1699,17 +1727,18 @@ def get_priority_schedule():
             (datetime.datetime.now() - last_irrigation).total_seconds() / 86400.0,
           )
           if last_irrigation is not None
-          else 10.0
+          else None
         )
       except (TypeError, ValueError):
-        days_since_last_irrigation = 10.0
+        days_since_last_irrigation = None
 
     zone_groups[z_name]['moistures'].append(float(moist))
     zone_groups[z_name]['temps'].append(float(temp))
     zone_groups[z_name]['areas'].append(float(area_acres))
-    zone_groups[z_name]['irrigation_intervals'].append(
-      float(days_since_last_irrigation),
-    )
+    if days_since_last_irrigation is not None:
+      zone_groups[z_name]['irrigation_intervals'].append(
+        float(days_since_last_irrigation),
+      )
     zone_groups[z_name]['count'] += 1
 
   zones_sensor_data = []
@@ -1719,13 +1748,12 @@ def get_priority_schedule():
       temp_list = data['temps']
       z_count = data['count']
 
-      z_weight = 1.5 if 'tail' in z_name.lower() or '3' in z_name else (1.2 if 'middle' in z_name.lower() or '2' in z_name else 1.0)
       total_acres = round(sum(data['areas']), 1)
 
       zones_sensor_data.append({
           'ZoneID': f'Z_{hash(z_name) % 1000}',
           'ZoneName': z_name,
-          'ZoneWeight': z_weight,
+          'ZoneWeight': 1.0,
           'TotalFields': z_count,
           'TotalAreaAcres': total_acres,
           'FieldMoistureReadings': moist_list,
@@ -1743,9 +1771,9 @@ def get_priority_schedule():
 
     avg_moisture = round(sum(moist_list) / len(moist_list), 1)
     avg_temp = round(sum(temp_list) / len(temp_list), 1)
-    avg_days_since_last_irrigation = round(
-      sum(irrigation_intervals) / len(irrigation_intervals),
-      1,
+    avg_days_since_last_irrigation = (
+      round(sum(irrigation_intervals) / len(irrigation_intervals), 1)
+      if irrigation_intervals else None
     )
 
     zone_urgency_score = calculate_urgency_score(
@@ -1775,18 +1803,21 @@ def get_priority_schedule():
         'PredictedVolume': zone_total_liters,
         'RainfallForecast': forecast_rain,
         'PreviousDayRainfall': previous_day_rainfall,
-        'WaterLevel': f'{reservoir_water_level} ft',
+        'WaterLevel': (
+          f'{reservoir_water_level} ft'
+          if reservoir_water_level is not None else None
+        ),
         'RoundRobinStatus': z['RoundRobinStatus'],
         'Date': 'Today',
         'Explanation': (
             f'[{release_status} Supply Policy] Avg Moisture: {avg_moisture}%, Avg Temp: {avg_temp}°C, '
-            f'Avg Days Since Irrigation: {avg_days_since_last_irrigation}. '
+            f'Avg Days Since Irrigation: {avg_days_since_last_irrigation if avg_days_since_last_irrigation is not None else "Unknown"}. '
             f'Previous-day Rainfall: {previous_day_rainfall} mm, Area: {z["TotalAreaAcres"]} acres. '
             f'Urgency Score: {zone_urgency_score} (Formula 1). Target Water Needed: {zone_total_liters} L (Formula 2).'
         ),
     })
 
-  if release_status == 'Low':
+  if release_status in ('Low', 'Unavailable'):
     sorted_schedule = sorted(schedule, key=lambda x: x['urgency_score'], reverse=True)
   elif release_status == 'Medium':
     sorted_schedule = schedule
@@ -1801,7 +1832,11 @@ def get_priority_schedule():
       'release_status': release_status,
       'allocation_policy': allocation_policy,
       'policy_description': policy_description,
-      'schedule': sorted_schedule
+      'predicted_release_acft_per_day': predicted_release_val,
+      'reservoir_water_level_ft': reservoir_water_level,
+      'release_data_source': release_data_source,
+      'schedule': sorted_schedule,
+      'waiting_requests': waiting_requests,
   }), 200
 
 

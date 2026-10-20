@@ -5,7 +5,6 @@ import 'app_config.dart';
 import 'app_localization.dart';
 import 'app_theme.dart';
 import 'weather_service.dart';
-import 'auth_service.dart';
 
 class PriorityScheduleScreen extends StatefulWidget {
   const PriorityScheduleScreen({super.key});
@@ -20,6 +19,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
   bool isLoading = true;
   String? errorMessage;
   List<dynamic> schedule = [];
+  List<dynamic> waitingRequests = [];
 
   String releaseStatus = 'Low';
   String allocationPolicy = 'PRIORITY_BASED';
@@ -133,6 +133,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
         final cloudData = jsonDecode(cloudResponse.body);
         setState(() {
           schedule = cloudData['schedule'] ?? [];
+          waitingRequests = cloudData['waiting_requests'] ?? [];
           releaseStatus = cloudData['release_status'] ?? 'Low';
           allocationPolicy = cloudData['allocation_policy'] ?? 'PRIORITY_BASED';
           policyDescription =
@@ -146,71 +147,8 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
       // Continue to the local offline fallback below.
     }
 
-    // Always prefer live incoming farmer requests from AuthService if present
-    final liveZoneSchedule = AuthService.instance.getZonePrioritySchedule();
-    if (liveZoneSchedule.isNotEmpty) {
-      setState(() {
-        schedule = liveZoneSchedule;
-        releaseStatus = 'Low';
-        allocationPolicy = 'PRIORITY_BASED';
-        policyDescription =
-            'Low Water Supply (<80 Acft/Day): 🔴 Priority-Based Scarcity Allocation by Zone Urgency Score (Formula 1 & 2 Applied).';
-        isLoading = false;
-      });
-      return;
-    }
-
-    try {
-      final response = await http
-          .get(Uri.parse("$baseUrl/priority-schedule"))
-          .timeout(const Duration(seconds: 3));
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          schedule = data['schedule'] ?? [];
-          releaseStatus = data['release_status'] ?? 'Low';
-          allocationPolicy = data['allocation_policy'] ?? 'PRIORITY_BASED';
-          policyDescription =
-              data['policy_description'] ?? 'Low Water Supply Policy Active.';
-          isLoading = false;
-        });
-      } else {
-        _loadMockSchedule();
-      }
-    } catch (e) {
-      if (!mounted) return;
-      _loadMockSchedule();
-    }
-  }
-
-  void _loadMockSchedule() {
-    final liveZoneSchedule = AuthService.instance.getZonePrioritySchedule();
     setState(() {
-      if (liveZoneSchedule.isNotEmpty) {
-        schedule = liveZoneSchedule;
-      } else {
-        schedule = [
-          {
-            "Rank": 1,
-            "ZoneName": "Zone 28",
-            "TotalFields": 2,
-            "TotalAreaAcres": 5.0,
-            "AvgSoilMoisture": 45.5,
-            "AvgSoilTemp": 29.7,
-            "AvgDaysSinceLastIrrigation": 10.0,
-            "urgency_score": 92.1,
-            "target_water_req_liters": 894387,
-            "PredictedVolume": 894387,
-            "PreviousDayRainfall": 0.0,
-            "Date": "Today",
-            "Explanation":
-                "Aggregated from incoming farmer requests for Zone 28.",
-          },
-        ];
-      }
+      errorMessage = 'Could not load real priority data. Please try again.';
       isLoading = false;
     });
   }
@@ -219,6 +157,45 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
     if (rank == 1) return Colors.redAccent;
     if (rank <= 3) return Colors.orangeAccent;
     return AppColors.emerald;
+  }
+
+  Widget _buildWaitingRequestsCard({required bool isCompact}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: EdgeInsets.all(isCompact ? 14 : 20),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.sensors_off_rounded, color: Colors.orange),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Waiting for sensor data',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...waitingRequests.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '${item['ZoneName']} • Request #${item['RequestID']}: ${item['Reason']}',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -273,11 +250,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  context.tr('Adaptive Policy Mode') +
-                      ': ' +
-                      context.tr(releaseStatus) +
-                      ' ' +
-                      context.tr('Water Release'),
+                  '${context.tr('Adaptive Policy Mode')}: ${context.tr(releaseStatus)} ${context.tr('Water Release')}',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: isCompact ? 14 : 14.5,
@@ -307,10 +280,10 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
       );
     }
 
-    if (schedule.isEmpty) {
+    if (schedule.isEmpty && waitingRequests.isEmpty) {
       return Center(
         child: Text(
-          context.tr('No priority schedule available'),
+          errorMessage ?? context.tr('No priority schedule available'),
           style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
         ),
       );
@@ -325,10 +298,14 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
           onRefresh: fetchSchedule,
           child: ListView.builder(
             padding: EdgeInsets.all(isCompact ? 12 : 20),
-            itemCount: schedule.length + 1,
+            itemCount: schedule.length + 1 + (waitingRequests.isEmpty ? 0 : 1),
             itemBuilder: (context, index) {
               if (index == 0) {
                 return _buildPolicyHeaderCard(isCompact: isCompact);
+              }
+
+              if (index > schedule.length) {
+                return _buildWaitingRequestsCard(isCompact: isCompact);
               }
 
               final item = schedule[index - 1];
@@ -604,7 +581,7 @@ class _PriorityScheduleScreenState extends State<PriorityScheduleScreen> {
                               const SizedBox(width: 6),
                               Expanded(
                                 child: Text(
-                                  "Average days since irrigation: ${item['AvgDaysSinceLastIrrigation'] ?? 10}",
+                                  "Average days since irrigation: ${item['AvgDaysSinceLastIrrigation'] ?? 'Unknown'}",
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: AppColors.textSecondary,

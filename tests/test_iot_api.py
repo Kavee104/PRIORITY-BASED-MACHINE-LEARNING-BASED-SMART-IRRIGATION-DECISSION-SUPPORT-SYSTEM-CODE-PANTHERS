@@ -360,6 +360,52 @@ class IotApiTests(unittest.TestCase):
         names = {item['ZoneName'] for item in schedule}
         self.assertEqual(names, {'Zone 1'})
 
+    def test_priority_schedule_does_not_invent_missing_sensor_values(self):
+        request_without_sensor = {
+            'RequestID': 16,
+            'farmer_id': 6,
+            'FieldID': 10,
+            'ZoneName': 'Zone 28 (Field #10)',
+            'SoilMoisture': None,
+            'SoilTemperature': None,
+            'AreaAcres': 5.0,
+            'Status': 'Pending',
+        }
+        with patch.object(backend, 'water_requests', [request_without_sensor]), \
+             patch.object(backend, '_supabase_latest_sensors', return_value={}), \
+             patch.object(backend, 'get_weather_forecast', return_value=0.0), \
+             patch.object(backend, 'get_previous_day_rainfall', return_value=1.2):
+            response = self.client.get('/priority-schedule')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['schedule'], [])
+        self.assertEqual(len(response.json['waiting_requests']), 1)
+        self.assertEqual(
+            response.json['waiting_requests'][0]['Status'],
+            'Waiting for sensor data',
+        )
+
+    def test_priority_schedule_accepts_zero_moisture_as_real_reading(self):
+        zero_moisture_request = {
+            'RequestID': 17,
+            'farmer_id': 6,
+            'FieldID': 11,
+            'ZoneName': 'Zone 5 (Field #11)',
+            'SoilMoisture': 0.0,
+            'SoilTemperature': 30.0,
+            'AreaAcres': 2.0,
+            'Status': 'Pending',
+        }
+        with patch.object(backend, 'water_requests', [zero_moisture_request]), \
+             patch.object(backend, '_supabase_latest_sensors', return_value={}), \
+             patch.object(backend, 'get_weather_forecast', return_value=0.0), \
+             patch.object(backend, 'get_previous_day_rainfall', return_value=1.2):
+            response = self.client.get('/priority-schedule')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['schedule'][0]['AvgSoilMoisture'], 0.0)
+        self.assertEqual(response.json['waiting_requests'], [])
+
     def test_password_otp_is_never_exposed_when_email_is_not_configured(self):
         user = {
             'id': 98765,

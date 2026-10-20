@@ -6,7 +6,6 @@ import 'app_config.dart';
 import 'app_localization.dart';
 import 'app_theme.dart';
 import 'auth_service.dart';
-import 'csv_export.dart';
 import 'main.dart';
 import 'user_management_screen.dart';
 import 'priority_schedule_screen.dart';
@@ -41,6 +40,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   // Water requests from API
   List<dynamic> _waterRequests = [];
+  static const int _requestsPerPage = 5;
+  int _requestPage = 0;
 
   // Audit log from API
   List<dynamic> _auditLog = [];
@@ -246,68 +247,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return null;
   }
 
-  void _exportCsvReport() {
-    if (_waterRequests.isEmpty) return;
-
-    final StringBuffer csv = StringBuffer();
-    csv.writeln(
-      "Req #,Farmer,Zone / Field,Soil Moisture (%),Soil Temp (C),Previous-day Rainfall (mm),Area (acres),Target Water Req (L),Requested At,Status",
-    );
-
-    for (var r in _waterRequests) {
-      final reqId = r['RequestID'] ?? 0;
-      final farmer = r['farmer_name'] ?? 'Unknown';
-      final zone = r['ZoneName'] ?? '';
-      final liveSensor = _liveSensorForRequest(r);
-      final moist =
-          r['SoilMoisture'] ?? r['soil_moisture'] ?? liveSensor?['moisture'];
-      final temp =
-          r['SoilTemperature'] ??
-          r['soil_temperature'] ??
-          liveSensor?['temperature'];
-      final rain = r['PreviousDayRainfall'] ?? 0.0;
-      final area = r['AreaAcres'] ?? r['Size'] ?? 2.5;
-      final double? targetLiters = moist is num && temp is num
-          ? calculateTargetWaterRequirementLiters(
-              soilMoisture: moist.toDouble(),
-              temperature: temp.toDouble(),
-              previousDayRainfall: rain is num ? rain.toDouble() : 0.0,
-              areaAcres: area is num ? area.toDouble() : 2.5,
-            )
-          : null;
-      final reqTime = r['RequestTime'] ?? '';
-      final status = r['Status'] ?? 'Pending';
-
-      csv.writeln(
-        '"$reqId","$farmer","$zone","${moist ?? ''}","${temp ?? ''}","$rain","$area","${targetLiters?.toStringAsFixed(0) ?? ''}","$reqTime","$status"',
-      );
-    }
-
-    try {
-      final filename =
-          "smart_irrigation_requests_${DateTime.now().millisecondsSinceEpoch}.csv";
-      final downloaded = downloadCsv(csv.toString(), filename);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            downloaded
-                ? "Downloaded $filename to your Downloads folder!"
-                : "CSV download is currently available in the web app.",
-          ),
-          backgroundColor: AppColors.primaryGreen,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Could not export CSV report: $e"),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    }
-  }
-
   void _clearWaterRequests() {
     if (_waterRequests.isEmpty) return;
 
@@ -340,6 +279,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               AuthService.instance.clearWaterRequests();
               setState(() {
                 _waterRequests = [];
+                _requestPage = 0;
               });
               try {
                 await http.post(
@@ -1093,25 +1033,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildWaterRequestsSection() {
+    final pageCount = (_waterRequests.length / _requestsPerPage).ceil();
+    final safePage = pageCount == 0 ? 0 : _requestPage.clamp(0, pageCount - 1);
+    final pageStart = safePage * _requestsPerPage;
+    final pageEnd = (pageStart + _requestsPerPage).clamp(
+      0,
+      _waterRequests.length,
+    );
+    final pageRequests = _waterRequests.sublist(pageStart, pageEnd);
+
     final requestActions = <Widget>[
       if (_waterRequests.isNotEmpty) ...[
-        ElevatedButton.icon(
-          onPressed: _exportCsvReport,
-          icon: const Icon(Icons.download_rounded, size: 15),
-          label: Text(
-            context.tr('Export CSV'),
-            style: const TextStyle(fontSize: 12),
-          ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primaryGreen,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            minimumSize: const Size(0, 38),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        ),
         OutlinedButton.icon(
           onPressed: _clearWaterRequests,
           icon: const Icon(
@@ -1330,7 +1262,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                   ],
-                  rows: _waterRequests.map<DataRow>((r) {
+                  rows: pageRequests.map<DataRow>((r) {
                     final status = (r['Status'] ?? 'Pending') as String;
                     final reqId = r['RequestID'] as int;
                     final isPending = status == 'Pending';
@@ -1596,6 +1528,46 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
             ),
           ),
+        if (_waterRequests.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                tooltip: 'Previous page',
+                onPressed: safePage > 0
+                    ? () => setState(() => _requestPage = safePage - 1)
+                    : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              Flexible(
+                child: Text(
+                  'Page ${safePage + 1} of $pageCount  '
+                  '(${pageStart + 1}-$pageEnd of ${_waterRequests.length})',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.secondaryText,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Next page',
+                onPressed: safePage + 1 < pageCount
+                    ? () => setState(() => _requestPage = safePage + 1)
+                    : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+            ],
+          ),
+          const Center(
+            child: Text(
+              'Newest requests first',
+              style: TextStyle(color: AppColors.mutedText, fontSize: 11),
+            ),
+          ),
+        ],
       ],
     );
   }

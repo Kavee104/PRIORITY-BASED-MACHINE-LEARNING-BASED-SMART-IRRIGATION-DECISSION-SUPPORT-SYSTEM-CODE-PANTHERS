@@ -354,6 +354,34 @@ def _find_user(identifier):
   return username, None
 
 
+def _farmer_display_name(farmer_id, database_name=None):
+  """Return a stable farmer name even when the legacy farmer row is blank."""
+  database_name = str(database_name or '').strip()
+  fallback_label = f'Farmer #{farmer_id}'
+  if database_name and database_name != fallback_label:
+    return database_name
+
+  seen_accounts = set()
+  for account in users.values():
+    identity = id(account)
+    if identity in seen_accounts:
+      continue
+    seen_accounts.add(identity)
+    try:
+      same_farmer = int(account.get('id')) == int(farmer_id)
+    except (TypeError, ValueError):
+      same_farmer = False
+    if same_farmer and str(account.get('role') or '').lower() == 'farmer':
+      name = str(account.get('name') or '').strip()
+      if name:
+        return name
+      email = str(account.get('email') or '').strip()
+      if email:
+        return email
+
+  return database_name or fallback_label
+
+
 def _session_token(username, user):
   canonical_username = next((key for key, record in users.items() if record is user), username)
   return session_signer.dumps({
@@ -1998,7 +2026,7 @@ def submit_water_request():
     'ZoneName': zone_name,
     'Status': 'Pending',
     'RequestTime': _local_now().strftime('%Y-%m-%d %H:%M:%S'),
-    'farmer_name': f'Farmer #{farmer_id}',
+    'farmer_name': _farmer_display_name(farmer_id),
     'AreaAcres': area_acres,
     'ZoneNo': zone_no,
   }
@@ -2062,7 +2090,7 @@ def get_my_requests(farmer_id):
           'ZoneName': f"Zone {r.get('ZoneNo', '?')}",
           'Status': r['Status'],
           'RequestTime': req_time_str,
-          'farmer_name': f"Farmer #{r['FarmerID']}"
+          'farmer_name': _farmer_display_name(r['FarmerID'])
         })
       cursor.close()
       conn.close()
@@ -2139,7 +2167,10 @@ def admin_get_water_requests():
       rows = cursor.fetchall()
       for r in rows:
         req_time_str = _format_utc_as_local(r['RequestTime'])
-        farmer_name = f"{r.get('F_Name', '')} {r.get('L_Name', '')}".strip() or f"Farmer #{r['FarmerID']}"
+        database_name = (
+          f"{r.get('F_Name', '')} {r.get('L_Name', '')}".strip()
+        )
+        farmer_name = _farmer_display_name(r['FarmerID'], database_name)
         db_reqs.append({
           'RequestID': r['RequestID'],
           'farmer_id': r['FarmerID'],
@@ -2164,6 +2195,13 @@ def admin_get_water_requests():
       req_map[r['RequestID']] = r
 
   response_reqs = [dict(item) for item in req_map.values()]
+  for item in response_reqs:
+    farmer_id = item.get('farmer_id') or item.get('FarmerID')
+    if farmer_id is not None:
+      item['farmer_name'] = _farmer_display_name(
+        farmer_id,
+        item.get('farmer_name'),
+      )
   sorted_reqs = sorted(_attach_request_snapshots(response_reqs),
                        key=lambda x: x.get('RequestID', 0), reverse=True)
   _attach_live_admin_sensor_values(sorted_reqs)

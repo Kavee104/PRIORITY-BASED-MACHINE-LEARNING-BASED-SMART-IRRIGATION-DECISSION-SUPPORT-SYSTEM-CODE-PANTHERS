@@ -40,6 +40,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   // Water requests from API
   List<dynamic> _waterRequests = [];
+  bool _hasCloudWaterRequests = false;
   static const int _requestsPerPage = 5;
   int _requestPage = 0;
 
@@ -190,18 +191,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   List<dynamic> _getCombinedRequests() {
-    final localReqs = AuthService.instance
-        .getWaterRequests()
-        .map((r) => r.toJson())
-        .toList();
-    final combinedMap = <int, dynamic>{};
-    for (var r in localReqs) {
-      combinedMap[r['RequestID'] as int] = r;
-    }
-    for (var r in _waterRequests) {
-      if (r['RequestID'] != null) combinedMap[r['RequestID'] as int] = r;
-    }
-    final list = combinedMap.values.toList();
+    // Once the backend has responded, its MySQL rows are authoritative.
+    // Mixing in local demo/fallback requests creates fake Farmer #101-style
+    // rows in the admin dashboard.
+    final list = _hasCloudWaterRequests
+        ? List<dynamic>.from(_waterRequests)
+        : AuthService.instance
+              .getWaterRequests()
+              .map((request) => request.toJson())
+              .toList();
     list.sort((a, b) {
       final timeA = (a['RequestTime'] ?? '').toString();
       final timeB = (b['RequestTime'] ?? '').toString();
@@ -376,13 +374,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .timeout(const Duration(seconds: 20));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (mounted) _waterRequests = data['requests'] ?? [];
+        if (!mounted) return;
+        final requests = List<dynamic>.from(data['requests'] ?? const []);
+        setState(() {
+          _hasCloudWaterRequests = true;
+          _waterRequests = requests;
+          final pageCount = (_waterRequests.length / _requestsPerPage).ceil();
+          if (pageCount == 0) {
+            _requestPage = 0;
+          } else if (_requestPage >= pageCount) {
+            _requestPage = pageCount - 1;
+          }
+        });
+        return;
       }
-    } catch (_) {
-      if (mounted) _waterRequests = [];
-    }
+    } catch (_) {}
 
-    if (mounted) {
+    // Local requests are used only when this screen has never received a
+    // successful cloud response. A temporary network error must not replace
+    // already-loaded MySQL data with local demo data.
+    if (mounted && !_hasCloudWaterRequests) {
       setState(() {
         _waterRequests = _getCombinedRequests();
       });

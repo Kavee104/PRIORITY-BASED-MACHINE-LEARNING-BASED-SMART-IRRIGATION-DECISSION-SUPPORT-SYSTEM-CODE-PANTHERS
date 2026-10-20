@@ -2095,6 +2095,7 @@ def submit_water_request():
 def get_my_requests(farmer_id):
   import datetime
   db_reqs = []
+  db_read_succeeded = False
   conn = get_db_connection()
   if conn:
     try:
@@ -2106,6 +2107,7 @@ def get_my_requests(farmer_id):
         (farmer_id,)
       )
       rows = cursor.fetchall()
+      db_read_succeeded = True
       for r in rows:
         req_time_str = _format_utc_as_local(r['RequestTime'])
         db_reqs.append({
@@ -2122,10 +2124,12 @@ def get_my_requests(farmer_id):
     except Exception as e:
       print("Error reading requests from MySQL:", e)
 
-  file_reqs = [r for r in water_requests if r.get('farmer_id') == farmer_id]
-  req_map = {r['RequestID']: r for r in file_reqs if 'RequestID' in r}
-  for r in db_reqs:
-    req_map[r['RequestID']] = r
+  # MySQL is authoritative whenever it can be read. The bundled requests.json
+  # contains legacy demo rows and is only a fallback for offline development.
+  source_reqs = db_reqs if db_read_succeeded else [
+    r for r in water_requests if r.get('farmer_id') == farmer_id
+  ]
+  req_map = {r['RequestID']: r for r in source_reqs if 'RequestID' in r}
 
   sensor_fields = ('SoilMoisture', 'SoilTemperature', 'SensorRecordedAt',
                    'DeviceID')
@@ -2178,6 +2182,7 @@ def admin_get_water_requests():
   if not _admin_key_valid(request):
     return jsonify({'status': 'error', 'message': 'admin key required'}), 401
   db_reqs = []
+  db_read_succeeded = False
   conn = get_db_connection()
   if conn:
     try:
@@ -2190,6 +2195,7 @@ def admin_get_water_requests():
         "ORDER BY ir.RequestID DESC"
       )
       rows = cursor.fetchall()
+      db_read_succeeded = True
       for r in rows:
         req_time_str = _format_utc_as_local(r['RequestTime'])
         database_name = (
@@ -2211,13 +2217,13 @@ def admin_get_water_requests():
     except Exception as e:
       print("Error reading admin water requests from MySQL:", e)
 
-  req_map = {}
-  for r in db_reqs:
-    if 'RequestID' in r:
-      req_map[r['RequestID']] = r
-  for r in reversed(water_requests):
-    if 'RequestID' in r:
-      req_map[r['RequestID']] = r
+  # Never merge the bundled demo JSON into a successful production query.
+  # It used to overwrite real MySQL rows with Farmer #101/Farmer #12 labels
+  # and made cleared requests reappear after every deployment restart.
+  source_reqs = db_reqs if db_read_succeeded else water_requests
+  req_map = {
+    r['RequestID']: r for r in source_reqs if 'RequestID' in r
+  }
 
   response_reqs = [dict(item) for item in req_map.values()]
   for item in response_reqs:

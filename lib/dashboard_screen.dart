@@ -1498,7 +1498,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
                     dataRowMinHeight: 56,
-                    dataRowMaxHeight: 84,
+                    dataRowMaxHeight: 132,
                     headingRowColor: WidgetStateProperty.all(
                       AppColors.inputBackground,
                     ),
@@ -1594,14 +1594,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   Padding(
                                     padding: const EdgeInsets.only(top: 4),
                                     child: SizedBox(
-                                      width: 180,
-                                      child: Text(
-                                        'Reason: $rejectionReason',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: AppColors.danger,
-                                          fontSize: 10,
+                                      width: 300,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(8),
+                                        onTap: () => showDialog<void>(
+                                          context: context,
+                                          builder: (dialogContext) =>
+                                              AlertDialog(
+                                                title: const Text(
+                                                  'Rejection Reason',
+                                                ),
+                                                content: SelectableText(
+                                                  rejectionReason,
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(
+                                                          dialogContext,
+                                                        ).pop(),
+                                                    child: const Text('Close'),
+                                                  ),
+                                                ],
+                                              ),
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 3,
+                                          ),
+                                          child: Text(
+                                            'Reason: $rejectionReason',
+                                            maxLines: 4,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: AppColors.danger,
+                                              fontSize: 12,
+                                              height: 1.3,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
